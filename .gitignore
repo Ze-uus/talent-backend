@@ -1,0 +1,5 @@
+.env*
+!.env.example
+dev-files/*
+.cursor
+.claude

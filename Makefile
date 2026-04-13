@@ -52,7 +52,7 @@ test:
 
 test-algo:
 	@echo "→ Algo tests..."
-	go test ./internal/algo/... -v -count=1 -race
+	go test ./tests/algo/... -v -count=1 -race
 
 test-jobs:
 	@echo "→ Job tests..."

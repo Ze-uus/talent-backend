@@ -24,6 +24,7 @@ func DefaultConfig() CycleConfig {
 	}
 }
 
+
 func (c CycleConfig) Validate() error {
 	if c.Max_tier_cap <= 0 {
 		return errors.New("max_tier_cap must be positive")

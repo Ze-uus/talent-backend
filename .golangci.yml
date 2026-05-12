@@ -4,7 +4,13 @@ run:
   timeout: 5m
 
 linters:
-  default: standard
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
   settings:
     revive:
       rules:

@@ -11,7 +11,7 @@ VERSION     ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 
         docker-up docker-up-build docker-down docker-down-volumes docker-build docker-logs \
         migrate-up migrate-down migrate-reset migrate-status migrate-create \
         docs-update docs-serve \
-        install-tools sqlc-generate help
+        install-tools install-hooks sqlc-generate help
 
 # ─── Primary targets ──────────────────────────────────────────────────────────
 
@@ -162,6 +162,11 @@ install-tools:
 	go install github.com/pressly/goose/v3/cmd/goose@latest
 	go install github.com/cosmtrek/air@latest
 	go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+
+install-hooks: ## Install git pre-commit hook
+	cp scripts/pre-commit .git/hooks/pre-commit
+	chmod +x .git/hooks/pre-commit
+	@echo "pre-commit hook installed"
 
 sqlc-generate:
 	@echo "→ Generating sqlc queries..."

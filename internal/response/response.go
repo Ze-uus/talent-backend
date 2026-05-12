@@ -50,5 +50,5 @@ func Pending(data any, message string) Response {
 func WriteJSON(w http.ResponseWriter, status_code int, resp Response) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status_code)
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }

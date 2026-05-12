@@ -11,9 +11,11 @@ const Forbidden = math.MaxFloat64
 const maxMatrixSize = 10000
 
 type AssignmentInput struct {
-	Talents   []TalentProfile `json:"talents"`
-	Slots     []BudgetSlot    `json:"slots"`
-	All_tiers []int           `json:"all_tiers"`
+	Talents     []TalentProfile            `json:"talents"`
+	Slots       []BudgetSlot               `json:"slots"`
+	All_tiers   []int                      `json:"all_tiers"`
+	MatchScores map[string]MatchScoreResult `json:"match_scores,omitempty"` // nil = neutral (MS_t=0)
+	Alpha       float64                    `json:"alpha,omitempty"`        // 0 = use DefaultAlpha
 }
 
 type Assignment struct {
@@ -28,9 +30,10 @@ type AssignmentOutput struct {
 	Unassigned  []string     `json:"unassigned"`
 }
 
-// ComputeCij returns the time cost (days) for talent i assigned to slot j.
+// ComputeCij returns the match-adjusted time cost (days) for talent i assigned to slot j.
 // Returns Forbidden if the assignment is ineligible.
-func ComputeCij(t TalentProfile, slot BudgetSlot, all_tiers []int) float64 {
+// Formula: (BaseDays + PenaltyDays) × MatchAdjustment(ms.MS_t, alpha)  (Story 18 A.6)
+func ComputeCij(t TalentProfile, slot BudgetSlot, all_tiers []int, ms MatchScoreResult, alpha float64) float64 {
 	q, err := QualifyTalentForSlot(t, slot, all_tiers)
 	if err != nil || !q.Qualified {
 		return Forbidden
@@ -44,11 +47,14 @@ func ComputeCij(t TalentProfile, slot BudgetSlot, all_tiers []int) float64 {
 		shortfall = 0
 	}
 	penalty_days := math.Floor(shortfall / 0.10)
-	result := q.Base_days + penalty_days
-	if !isFinite(result) {
+	base_cost := q.Base_days + penalty_days
+	if !isFinite(base_cost) {
 		return Forbidden
 	}
-	return result
+	if alpha <= 0 {
+		alpha = DefaultAlpha
+	}
+	return base_cost * MatchAdjustment(ms.MS_t, alpha)
 }
 
 func Solve(in AssignmentInput) (AssignmentOutput, error) {
@@ -83,9 +89,20 @@ func Solve(in AssignmentInput) (AssignmentOutput, error) {
 			cost[i][j] = Forbidden
 		}
 	}
+	alpha := in.Alpha
+	if alpha <= 0 {
+		alpha = DefaultAlpha
+	}
+
 	for i, t := range in.Talents {
+		ms := MatchScoreResult{} // neutral: MS_t=0, no adjustment
+		if in.MatchScores != nil {
+			if score, ok := in.MatchScores[t.ID]; ok {
+				ms = score
+			}
+		}
 		for j, s := range in.Slots {
-			cost[i][j] = ComputeCij(t, s, in.All_tiers)
+			cost[i][j] = ComputeCij(t, s, in.All_tiers, ms, alpha)
 		}
 	}
 

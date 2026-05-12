@@ -1,18 +1,18 @@
+version: "2"
+
 run:
   timeout: 5m
 
 linters:
-  enable-all: false
+  default: none
   enable:
     - errcheck
-    - gosimple
     - govet
     - ineffassign
     - staticcheck
     - unused
-
-linters-settings:
-  revive:
-    rules:
-      - name: var-naming
-        disabled: true
+  settings:
+    revive:
+      rules:
+        - name: var-naming
+          disabled: true

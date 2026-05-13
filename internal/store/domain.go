@@ -4,98 +4,100 @@ import "time"
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-type user_role string
+type User_role string
 
 const (
-	role_admin  user_role = "admin"
-	role_talent user_role = "talent"
-	role_viewer user_role = "viewer"
+	Role_superadmin       User_role = "superadmin"
+	Role_admin            User_role = "admin"
+	Role_campaign_manager User_role = "campaign_manager"
+	Role_talent           User_role = "talent"
+	Role_viewer           User_role = "viewer"
 )
 
-type auth_provider string
+type Auth_provider string
 
 const (
-	provider_local  auth_provider = "local"
-	provider_google auth_provider = "google"
+	Provider_local  Auth_provider = "local"
+	Provider_google Auth_provider = "google"
 )
 
-type talent_status string
+type Talent_status string
 
 const (
-	status_pending   talent_status = "pending"
-	status_active    talent_status = "active"
-	status_suspended talent_status = "suspended"
-	status_rejected  talent_status = "rejected"
+	Status_pending   Talent_status = "pending"
+	Status_active    Talent_status = "active"
+	Status_suspended Talent_status = "suspended"
+	Status_rejected  Talent_status = "rejected"
 )
 
-type campaign_status string
+type Campaign_status string
 
 const (
-	campaign_draft    campaign_status = "draft"
-	campaign_active   campaign_status = "active"
-	campaign_paused   campaign_status = "paused"
-	campaign_closed   campaign_status = "closed"
-	campaign_archived campaign_status = "archived"
+	Campaign_draft    Campaign_status = "draft"
+	Campaign_active   Campaign_status = "active"
+	Campaign_paused   Campaign_status = "paused"
+	Campaign_closed   Campaign_status = "closed"
+	Campaign_archived Campaign_status = "archived"
 )
 
-type cycle_status string
+type Cycle_status string
 
 const (
-	cycle_pending cycle_status = "pending"
-	cycle_active  cycle_status = "active"
-	cycle_closed  cycle_status = "closed"
+	Cycle_pending Cycle_status = "pending"
+	Cycle_active  Cycle_status = "active"
+	Cycle_closed  Cycle_status = "closed"
 )
 
-type campaign_type string
+type Campaign_type string
 
 const (
-	type_direct_traffic  campaign_type = "direct_traffic"
-	type_lead_validation campaign_type = "lead_validation"
+	Type_direct_traffic  Campaign_type = "direct_traffic"
+	Type_lead_validation Campaign_type = "lead_validation"
 )
 
 // Urgency thresholds per Story 5b.
 // Low: <100 conv/day, Normal: 100–300/day, High: >300/day
-type urgency_level string
+type Urgency_level string
 
 const (
-	urgency_low    urgency_level = "low"
-	urgency_normal urgency_level = "normal"
-	urgency_high   urgency_level = "high"
+	Urgency_low    Urgency_level = "low"
+	Urgency_normal Urgency_level = "normal"
+	Urgency_high   Urgency_level = "high"
 )
 
-type talent_category string
+type Talent_category string
 
 const (
-	category_student   talent_category = "student"   // Tier C — median PDC: 2
-	category_micro     talent_category = "micro"     // Tier B — median PDC: 5
-	category_community talent_category = "community" // Tier A — median PDC: 15
+	Category_student   Talent_category = "student"   // Tier C — median PDC: 2
+	Category_micro     Talent_category = "micro"     // Tier B — median PDC: 5
+	Category_community Talent_category = "community" // Tier A — median PDC: 15
 )
 
-type pdc_mode string
+type Pdc_mode string
 
 const (
-	pdc_cold_start pdc_mode = "cold_start"
-	pdc_stec       pdc_mode = "stec"
-	pdc_ltec       pdc_mode = "ltec"
+	Pdc_cold_start Pdc_mode = "cold_start"
+	Pdc_stec       Pdc_mode = "stec"
+	Pdc_ltec       Pdc_mode = "ltec"
 )
 
-type assignment_source string
+type Assignment_source string
 
 const (
-	source_algorithm assignment_source = "algorithm"
-	source_pinned    assignment_source = "pinned"
-	source_manual    assignment_source = "manual"
+	Source_algorithm Assignment_source = "algorithm"
+	Source_pinned    Assignment_source = "pinned"
+	Source_manual    Assignment_source = "manual"
 )
 
-type payout_status string
+type Payout_status string
 
 const (
-	payout_report_pending payout_status = "report_pending"
-	payout_pending        payout_status = "pending"
-	payout_approved       payout_status = "approved"
-	payout_paid           payout_status = "paid"
-	payout_forfeited      payout_status = "forfeited"
-	payout_failed         payout_status = "failed"
+	Payout_report_pending Payout_status = "report_pending"
+	Payout_pending        Payout_status = "pending"
+	Payout_approved       Payout_status = "approved"
+	Payout_paid           Payout_status = "paid"
+	Payout_forfeited      Payout_status = "forfeited"
+	Payout_failed         Payout_status = "failed"
 )
 
 // ─── User + Session ───────────────────────────────────────────────────────────
@@ -104,8 +106,8 @@ type User struct {
 	ID                    string
 	Email                 string
 	Password_hash         string
-	Role                  user_role
-	Provider              auth_provider
+	Role                  User_role
+	Provider              Auth_provider
 	Google_id             string
 	Full_name             string
 	Avatar_url            string
@@ -179,8 +181,8 @@ type BrandContact struct {
 type Talent struct {
 	ID                string
 	User_id           string
-	Category          talent_category
-	Status            talent_status
+	Category          Talent_category
+	Status            Talent_status
 	Skills            []string
 	Rate_per_day      float64
 	Max_tier          int
@@ -200,15 +202,15 @@ type Campaign struct {
 	Human_id         string          // e.g. "CRD-26-01" — display identifier
 	Brand_id         string          // FK → brands.id
 	Name             string
-	Status           campaign_status
-	Campaign_type    campaign_type
+	Status           Campaign_status
+	Campaign_type    Campaign_type
 	Total_budget     float64
 	Remaining_budget float64 // system-managed, decremented as cycles close
 	Market_cap       string  // "M" = unlimited, or numeric string e.g. "300"
 	Audience         string
 	Target_cpa       float64
 	Max_cpa          float64
-	Urgency_level    urgency_level
+	Urgency_level    Urgency_level
 	Cycle_length     int // 5, 7, or 10 days
 	Creators_allowed bool
 	Start_date       time.Time
@@ -223,14 +225,14 @@ type Campaign struct {
 // Human ID format: "CRD-26-01-C2" (campaign human_id + "-C" + cycle_number).
 type Cycle struct {
 	ID               string
-	Human_id         string        // e.g. "CRD-26-01-C2"
+	Human_id         string         // e.g. "CRD-26-01-C2"
 	Campaign_id      string
 	Cycle_number     int
-	Status           cycle_status
+	Status           Cycle_status
 	Cycle_budget     float64
 	Remaining_budget float64
 	Cycle_objective  string
-	Campaign_type    campaign_type
+	Campaign_type    Campaign_type
 	KPB_config       []KPBDefinition // lead_validation only
 	Z_factor         float64         // derived from campaign urgency_level at creation
 	Start_date       time.Time
@@ -279,7 +281,7 @@ type ConversionEvent struct {
 	Talent_id        string
 	Campaign_id      string
 	Cycle_id         string
-	Pipeline_type    campaign_type // direct_traffic | lead_validation
+	Pipeline_type    Campaign_type // direct_traffic | lead_validation
 	Event_type       string        // "click" | "signup" | "purchase" | kpb_label
 	KPB_type         string        // populated for lead_validation KPB events
 	Valid_lead       bool          // set by decision evaluation (Story 5e(v)); Lead Pipeline only
@@ -299,8 +301,8 @@ type TalentAssignment struct {
 	Slot_id           string
 	Role_label        string
 	Status            string            // "active" | "completed" | "removed_forfeit" | "removed_payout"
-	Assignment_source assignment_source // algorithm | pinned | manual
-	PDC_mode          pdc_mode          // cold_start | stec | ltec
+	Assignment_source Assignment_source // algorithm | pinned | manual
+	PDC_mode          Pdc_mode          // cold_start | stec | ltec
 	PDC_value         float64           // PDC_t at time of allocation
 	Match_score       float64           // MS_t composite (0.0–1.0)
 	Match_dm          float64           // demographic match component
@@ -344,8 +346,8 @@ type PayoutRecord struct {
 	Talent_id     string
 	Cycle_id      string
 	Campaign_id   string
-	Pipeline_type campaign_type
-	Status        payout_status
+	Pipeline_type Campaign_type
+	Status        Payout_status
 
 	// Pre-commission fields
 	Allocated_budget float64
@@ -354,9 +356,9 @@ type PayoutRecord struct {
 	Gross_total      float64
 
 	// Cap evaluation
-	Cost_per_unit  float64 // cost per conversion (Traffic) or per lead (Lead)
-	Cap_applied    float64
-	Cap_exceeded   bool
+	Cost_per_unit    float64 // cost per conversion (Traffic) or per lead (Lead)
+	Cap_applied      float64
+	Cap_exceeded     bool
 	Excess_forfeited float64
 
 	// Commission + net
@@ -423,12 +425,12 @@ type TalentReport struct {
 }
 
 type CycleReport struct {
-	ID                              string
-	Cycle_id                        string
-	Offer_decision_label            string
-	Max_spend_decision_label        string
+	ID                               string
+	Cycle_id                         string
+	Offer_decision_label             string
+	Max_spend_decision_label         string
 	Predicted_daily_conversions_next float64
-	Generated_at                    time.Time
+	Generated_at                     time.Time
 }
 
 // ─── Audit Log ────────────────────────────────────────────────────────────────

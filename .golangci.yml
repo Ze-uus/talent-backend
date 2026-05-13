@@ -16,10 +16,3 @@ linters:
       rules:
         - name: var-naming
           disabled: true
-  exclusions:
-    rules:
-      # domain.go defines enum constants used by the Postgres implementation (STEP 05).
-      # They are intentionally unexported and not yet referenced.
-      - path: internal/store/domain.go
-        linters:
-          - unused

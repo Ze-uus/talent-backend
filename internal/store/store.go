@@ -65,6 +65,11 @@ type Store interface {
 	// NextCampaignHumanID returns the next available human_id for a brand in the current month.
 	NextCampaignHumanID(ctx context.Context, brand_shortcode string) (string, error)
 
+	// --- Campaign manager assignments ---
+	GetCampaignsByManagerID(ctx context.Context, manager_id string) ([]Campaign, error)
+	AssignManagerToCampaign(ctx context.Context, manager_id, campaign_id, assigned_by string) error
+	UnassignManagerFromCampaign(ctx context.Context, manager_id, campaign_id string) error
+
 	// --- Cycles ---
 	CreateCycle(ctx context.Context, c Cycle) error
 	GetCycleByID(ctx context.Context, id string) (Cycle, error)
@@ -137,6 +142,7 @@ type Store interface {
 type UserPatch struct {
 	Full_name             *string
 	Avatar_url            *string
+	Password_hash         *string
 	Totp_secret           *string
 	Totp_enabled          *bool
 	Totp_verified         *bool
@@ -198,7 +204,7 @@ type AssignmentPatch struct {
 }
 
 type PayoutPatch struct {
-	Status           *payout_status
+	Status           *Payout_status
 	Admin_override   *bool
 	Override_reason  *string
 	Approved_by      *string

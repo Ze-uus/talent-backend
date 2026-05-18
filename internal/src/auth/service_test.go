@@ -233,6 +233,9 @@ func (m *mockStore) InvalidateSession(ctx context.Context, token string) error {
 func (m *mockStore) InvalidateAllUserSessions(_ context.Context, _ string) error {
 	return errors.New("not_implemented")
 }
+func (m *mockStore) ListSessionsByUser(_ context.Context, _ string) ([]store.Session, error) {
+	return nil, errors.New("not_implemented")
+}
 
 func (m *mockStore) GetTalentByUserID(ctx context.Context, user_id string) (store.Talent, error) {
 	m.mu.Lock()
@@ -389,6 +392,9 @@ func (m *mockStore) GetAssignment(_ context.Context, _, _ string) (store.TalentA
 func (m *mockStore) ListAssignedTalents(_ context.Context, _ string) ([]store.TalentAssignment, error) {
 	return nil, errors.New("not_implemented")
 }
+func (m *mockStore) ListAssignmentsByTalent(_ context.Context, _ string) ([]store.TalentAssignment, error) {
+	return nil, errors.New("not_implemented")
+}
 func (m *mockStore) UpdateAssignment(_ context.Context, _, _ string, _ store.AssignmentPatch) error {
 	return errors.New("not_implemented")
 }
@@ -450,6 +456,9 @@ func (m *mockStore) GetPayoutRecord(_ context.Context, _, _ string) (store.Payou
 	return store.PayoutRecord{}, errors.New("not_implemented")
 }
 func (m *mockStore) ListPayoutsByCycle(_ context.Context, _ string) ([]store.PayoutRecord, error) {
+	return nil, errors.New("not_implemented")
+}
+func (m *mockStore) ListPayoutsByTalent(_ context.Context, _ string) ([]store.PayoutRecord, error) {
 	return nil, errors.New("not_implemented")
 }
 func (m *mockStore) UpdatePayoutRecord(_ context.Context, _ string, _ store.PayoutPatch) error {

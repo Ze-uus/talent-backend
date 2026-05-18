@@ -24,6 +24,7 @@ type Store interface {
 	TouchSession(ctx context.Context, token string, now time.Time) error
 	InvalidateSession(ctx context.Context, token string) error
 	InvalidateAllUserSessions(ctx context.Context, user_id string) error
+	ListSessionsByUser(ctx context.Context, user_id string) ([]Session, error)
 
 	// --- Brands ---
 	CreateBrand(ctx context.Context, b Brand) error
@@ -87,6 +88,7 @@ type Store interface {
 	CreateAssignment(ctx context.Context, a TalentAssignment) error
 	GetAssignment(ctx context.Context, talent_id, cycle_id string) (TalentAssignment, error)
 	ListAssignedTalents(ctx context.Context, cycle_id string) ([]TalentAssignment, error)
+	ListAssignmentsByTalent(ctx context.Context, talent_id string) ([]TalentAssignment, error)
 	UpdateAssignment(ctx context.Context, talent_id, cycle_id string, patch AssignmentPatch) error
 
 	// --- Tracking links ---
@@ -120,6 +122,7 @@ type Store interface {
 	CreatePayoutRecord(ctx context.Context, p PayoutRecord) error
 	GetPayoutRecord(ctx context.Context, talent_id, cycle_id string) (PayoutRecord, error)
 	ListPayoutsByCycle(ctx context.Context, cycle_id string) ([]PayoutRecord, error)
+	ListPayoutsByTalent(ctx context.Context, talent_id string) ([]PayoutRecord, error)
 	UpdatePayoutRecord(ctx context.Context, id string, patch PayoutPatch) error
 
 	// --- Campaign viewers (generic) ---

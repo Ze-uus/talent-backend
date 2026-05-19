@@ -5,7 +5,7 @@
     dockerfilePath: ./Dockerfile
     plan: starter
     region: oregon
-    branch: main
+    branch: dev
     healthCheckPath: /health/ready
     envVars:
       - key: PORT

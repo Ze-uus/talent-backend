@@ -18,7 +18,8 @@ type handler struct {
 func newHandler(svc *PayoutService) *handler { return &handler{svc: svc} }
 
 type std_output struct {
-	Body response.Response
+	Status int `json:"-"`
+	Body   response.Response
 }
 
 func (h *handler) register(api huma.API) {
@@ -33,13 +34,13 @@ func (h *handler) register(api huma.API) {
 		Cid string `path:"cid"`
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		payouts, err := h.svc.st.ListPayoutsByCycle(ctx, in.Cid)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(payouts, "ok")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(payouts, "ok")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -54,13 +55,13 @@ func (h *handler) register(api huma.API) {
 		Tid string `path:"tid"`
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		record, err := h.svc.st.GetPayoutRecord(ctx, in.Tid, in.Cid)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(record, "ok")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(record, "ok")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -76,12 +77,12 @@ func (h *handler) register(api huma.API) {
 	}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok || !isAdminRole(u.Role) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.ApprovePayout(ctx, in.Tid, in.Cid, u.ID); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "payout_approved")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "payout_approved")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -100,12 +101,12 @@ func (h *handler) register(api huma.API) {
 	}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok || !isAdminRole(u.Role) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.FlagPayout(ctx, in.Tid, in.Cid, in.Body.Reason, u.ID); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "payout_flagged")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "payout_flagged")}, nil
 	})
 }
 

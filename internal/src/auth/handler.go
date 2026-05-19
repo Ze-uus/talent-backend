@@ -24,10 +24,12 @@ func newHandler(svc *AuthService) *handler {
 // ─── Output types ─────────────────────────────────────────────────────────────
 
 type std_output struct {
-	Body response.Response
+	Status int `json:"-"`
+	Body   response.Response
 }
 
 type brand_access_output struct {
+	Status     int    `json:"-"`
 	Set_cookie string `header:"Set-Cookie"`
 	Body       response.Response
 }
@@ -50,6 +52,7 @@ func (h *handler) registerTalentAuth(api huma.API) {
 		Path:        "/auth/register",
 		Summary:     "Talent local registration",
 		Tags:        []string{"auth"},
+		Security:    []map[string][]string{},
 	}, func(ctx context.Context, in *struct {
 		Body struct {
 			Email     string `json:"email"`
@@ -58,9 +61,9 @@ func (h *handler) registerTalentAuth(api huma.API) {
 		}
 	}) (*std_output, error) {
 		if err := h.svc.RegisterTalent(ctx, in.Body.Email, in.Body.Password, in.Body.Full_name); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "registration_pending_approval")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "registration_pending_approval")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -69,20 +72,25 @@ func (h *handler) registerTalentAuth(api huma.API) {
 		Path:        "/auth/login",
 		Summary:     "Login for all roles",
 		Tags:        []string{"auth"},
+		Security:    []map[string][]string{},
 	}, func(ctx context.Context, in *struct {
 		X_forwarded_for string `header:"X-Forwarded-For"`
 		User_agent      string `header:"User-Agent"`
 		Body            struct {
-			Email     string `json:"email"`
-			Password  string `json:"password"`
-			Totp_code string `json:"totp_code"`
+			Email     string  `json:"email"`
+			Password  string  `json:"password"`
+			Totp_code *string `json:"totp_code,omitempty"`
 		}
 	}) (*std_output, error) {
-		result, err := h.svc.Login(ctx, in.Body.Email, in.Body.Password, in.Body.Totp_code, in.X_forwarded_for, in.User_agent)
-		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+		var totpCode string
+		if in.Body.Totp_code != nil {
+			totpCode = *in.Body.Totp_code
 		}
-		return &std_output{Body: response.Ok(map[string]any{
+		result, err := h.svc.Login(ctx, in.Body.Email, in.Body.Password, totpCode, in.X_forwarded_for, in.User_agent)
+		if err != nil {
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+		}
+		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]any{
 			"token":              result.Token,
 			"require_totp_setup": result.Require_totp_setup,
 			"totp_recheck_due":   result.Totp_recheck_due,
@@ -96,12 +104,13 @@ func (h *handler) registerTalentAuth(api huma.API) {
 		Path:        "/auth/google",
 		Summary:     "Get Google OAuth consent URL",
 		Tags:        []string{"auth"},
+		Security:    []map[string][]string{},
 	}, func(ctx context.Context, _ *struct{}) (*std_output, error) {
 		auth_url, state, err := h.svc.GoogleAuthURL()
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(map[string]string{
+		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]string{
 			"auth_url": auth_url,
 			"state":    state,
 		}, "ok")}, nil
@@ -113,18 +122,19 @@ func (h *handler) registerTalentAuth(api huma.API) {
 		Path:        "/auth/google/callback",
 		Summary:     "Google OAuth callback — exchange code for session",
 		Tags:        []string{"auth"},
+		Security:    []map[string][]string{},
 	}, func(ctx context.Context, in *struct {
 		Code string `query:"code" required:"true"`
 	}) (*std_output, error) {
 		u, err := h.svc.ExchangeGoogleCode(ctx, in.Code)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
 		result, err := h.svc.issueSession(ctx, u)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(map[string]any{
+		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]any{
 			"token":              result.Token,
 			"require_totp_setup": result.Require_totp_setup,
 		}, "login_success")}, nil
@@ -141,10 +151,10 @@ func (h *handler) registerTalentAuth(api huma.API) {
 	}) (*std_output, error) {
 		token := extractBearer(in.Authorization)
 		if token == "" {
-			return &std_output{Body: response.Fail("missing_token")}, nil
+			return &std_output{Status: 401, Body: response.Fail("missing_token")}, nil
 		}
 		_ = h.svc.Logout(ctx, token)
-		return &std_output{Body: response.Ok(nil, "logged_out")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "logged_out")}, nil
 	})
 }
 
@@ -165,13 +175,13 @@ func (h *handler) registerStaffInvites(api huma.API) {
 	}) (*std_output, error) {
 		caller, ok := ctxkeys.UserFromContext(ctx)
 		if !ok || caller.Role != store.Role_superadmin {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		token, err := h.svc.InviteSuperAdmin(ctx, in.Body.Email, in.Body.Full_name)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(map[string]string{"invite_token": token}, "invite_sent")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]string{"invite_token": token}, "invite_sent")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -188,13 +198,13 @@ func (h *handler) registerStaffInvites(api huma.API) {
 	}) (*std_output, error) {
 		caller, ok := ctxkeys.UserFromContext(ctx)
 		if !ok || caller.Role != store.Role_superadmin {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		token, err := h.svc.InviteAdmin(ctx, in.Body.Email, in.Body.Full_name)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(map[string]string{"invite_token": token}, "invite_sent")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]string{"invite_token": token}, "invite_sent")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -211,13 +221,13 @@ func (h *handler) registerStaffInvites(api huma.API) {
 	}) (*std_output, error) {
 		caller, ok := ctxkeys.UserFromContext(ctx)
 		if !ok || (caller.Role != store.Role_superadmin && caller.Role != store.Role_admin) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		token, err := h.svc.InviteCampaignManager(ctx, in.Body.Email, in.Body.Full_name)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(map[string]string{"invite_token": token}, "invite_sent")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]string{"invite_token": token}, "invite_sent")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -226,6 +236,7 @@ func (h *handler) registerStaffInvites(api huma.API) {
 		Path:        "/auth/verify-invite",
 		Summary:     "Set password from invite token (all staff roles)",
 		Tags:        []string{"auth"},
+		Security:    []map[string][]string{},
 	}, func(ctx context.Context, in *struct {
 		Body struct {
 			Invite_token string `json:"invite_token"`
@@ -234,9 +245,9 @@ func (h *handler) registerStaffInvites(api huma.API) {
 	}) (*std_output, error) {
 		u, err := h.svc.VerifyInvite(ctx, in.Body.Invite_token, in.Body.Password)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(map[string]string{
+		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]string{
 			"id":   u.ID,
 			"role": string(u.Role),
 		}, "account_activated")}, nil
@@ -255,13 +266,13 @@ func (h *handler) registerTOTP(api huma.API) {
 	}, func(ctx context.Context, _ *struct{}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok {
-			return &std_output{Body: response.Fail("unauthenticated")}, nil
+			return &std_output{Status: 401, Body: response.Fail("unauthenticated")}, nil
 		}
 		secret, qr_uri, err := h.svc.EnrollTOTP(ctx, u.ID)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(map[string]string{
+		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]string{
 			"secret": secret,
 			"qr_uri": qr_uri,
 		}, "totp_enrolled")}, nil
@@ -280,12 +291,12 @@ func (h *handler) registerTOTP(api huma.API) {
 	}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok {
-			return &std_output{Body: response.Fail("unauthenticated")}, nil
+			return &std_output{Status: 401, Body: response.Fail("unauthenticated")}, nil
 		}
 		if err := h.svc.VerifyAndEnableTOTP(ctx, u.ID, in.Body.Code); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "totp_activated")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "totp_activated")}, nil
 	})
 }
 
@@ -298,6 +309,7 @@ func (h *handler) registerBrandAccess(api huma.API) {
 		Path:        "/brand/view/{token}/access",
 		Summary:     "Brand contact login — validates password and sets session cookie",
 		Tags:        []string{"brand"},
+		Security:    []map[string][]string{},
 	}, func(ctx context.Context, in *struct {
 		Token string `path:"token"`
 		Body  struct {
@@ -306,7 +318,7 @@ func (h *handler) registerBrandAccess(api huma.API) {
 	}) (*brand_access_output, error) {
 		contact, err := h.svc.ValidateBrandContactAccess(ctx, in.Token, in.Body.Password)
 		if err != nil {
-			return &brand_access_output{Body: response.Fail("invalid_credentials")}, nil
+			return &brand_access_output{Status: 401, Body: response.Fail("invalid_credentials")}, nil
 		}
 		cookie := fmt.Sprintf(
 			"brand_contact_session=%s; HttpOnly; Path=/; Max-Age=%d",
@@ -314,6 +326,7 @@ func (h *handler) registerBrandAccess(api huma.API) {
 			int(viewer_cookie_ttl.Seconds()),
 		)
 		return &brand_access_output{
+			Status:     http.StatusOK,
 			Set_cookie: cookie,
 			Body:       response.Ok(nil, "access_granted"),
 		}, nil

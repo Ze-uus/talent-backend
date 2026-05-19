@@ -18,7 +18,8 @@ type handler struct {
 func newHandler(svc *TalentService) *handler { return &handler{svc: svc} }
 
 type std_output struct {
-	Body response.Response
+	Status int `json:"-"`
+	Body   response.Response
 }
 
 func (h *handler) register(api huma.API) {
@@ -31,13 +32,13 @@ func (h *handler) register(api huma.API) {
 	}, func(ctx context.Context, _ *struct{}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok || u.Role != store.Role_talent {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		profile, err := h.svc.GetProfile(ctx, u.ID)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(profile, "ok")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(profile, "ok")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -54,20 +55,20 @@ func (h *handler) register(api huma.API) {
 	}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok || u.Role != store.Role_talent {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		talent, err := h.svc.GetProfile(ctx, u.ID)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
 		patch := store.TalentPatch{
 			Bio:           in.Body.Bio,
 			Portfolio_url: in.Body.Portfolio_url,
 		}
 		if err := h.svc.PatchProfile(ctx, talent.ID, patch); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "profile_updated")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "profile_updated")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -79,17 +80,17 @@ func (h *handler) register(api huma.API) {
 	}, func(ctx context.Context, _ *struct{}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok || u.Role != store.Role_talent {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		talent, err := h.svc.GetProfile(ctx, u.ID)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
 		cycles, err := h.svc.ListMyCycles(ctx, talent.ID)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(cycles, "ok")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(cycles, "ok")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -103,17 +104,17 @@ func (h *handler) register(api huma.API) {
 	}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok || u.Role != store.Role_talent {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		talent, err := h.svc.GetProfile(ctx, u.ID)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
 		assignment, link, err := h.svc.GetMyCycle(ctx, talent.ID, in.Cid)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(map[string]any{
+		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]any{
 			"assignment":    assignment,
 			"tracking_link": link,
 		}, "ok")}, nil
@@ -130,17 +131,17 @@ func (h *handler) register(api huma.API) {
 	}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok || u.Role != store.Role_talent {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		talent, err := h.svc.GetProfile(ctx, u.ID)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
 		stats, err := h.svc.GetCycleStats(ctx, talent.ID, in.Cid)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(stats, "ok")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(stats, "ok")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -154,16 +155,16 @@ func (h *handler) register(api huma.API) {
 	}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok || u.Role != store.Role_talent {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		talent, err := h.svc.GetProfile(ctx, u.ID)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
 		if err := h.svc.RequestExpansion(ctx, talent.ID, in.Cid, u.ID); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "expansion_requested")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "expansion_requested")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -175,16 +176,16 @@ func (h *handler) register(api huma.API) {
 	}, func(ctx context.Context, _ *struct{}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok || u.Role != store.Role_talent {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		talent, err := h.svc.GetProfile(ctx, u.ID)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
 		history, err := h.svc.GetHistory(ctx, talent.ID)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(history, "ok")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(history, "ok")}, nil
 	})
 }

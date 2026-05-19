@@ -18,7 +18,8 @@ type handler struct {
 func newHandler(svc *AssignmentService) *handler { return &handler{svc: svc} }
 
 type std_output struct {
-	Body response.Response
+	Status int `json:"-"`
+	Body   response.Response
 }
 
 func (h *handler) register(api huma.API) {
@@ -33,13 +34,13 @@ func (h *handler) register(api huma.API) {
 		Cid string `path:"cid"`
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		output, err := h.svc.RunSolver(ctx, in.Cid)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(output, "solver_complete")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(output, "solver_complete")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -59,13 +60,13 @@ func (h *handler) register(api huma.API) {
 	}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok || !isAdminRole(u.Role) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		err := h.svc.ConfirmAssignments(ctx, in.Cid, in.ID, u.ID, in.Body.Confirmed, in.Body.Solver_output, in.Body.Is_override)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "assignments_confirmed")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "assignments_confirmed")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -79,13 +80,13 @@ func (h *handler) register(api huma.API) {
 		Cid string `path:"cid"`
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		assignments, err := h.svc.st.ListAssignedTalents(ctx, in.Cid)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(assignments, "ok")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(assignments, "ok")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -105,7 +106,7 @@ func (h *handler) register(api huma.API) {
 		}
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		patch := store.AssignmentPatch{
 			Status:        in.Body.Status,
@@ -113,9 +114,9 @@ func (h *handler) register(api huma.API) {
 			Match_score:   in.Body.Match_score,
 		}
 		if err := h.svc.st.UpdateAssignment(ctx, in.Tid, in.Cid, patch); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "assignment_updated")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "assignment_updated")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -130,13 +131,13 @@ func (h *handler) register(api huma.API) {
 		Tid string `path:"tid"`
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		status := "removed_payout"
 		if err := h.svc.st.UpdateAssignment(ctx, in.Tid, in.Cid, store.AssignmentPatch{Status: &status}); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "assignment_removed")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "assignment_removed")}, nil
 	})
 }
 

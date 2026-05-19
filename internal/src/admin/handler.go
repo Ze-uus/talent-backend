@@ -18,7 +18,8 @@ type handler struct {
 func newHandler(svc *AdminService) *handler { return &handler{svc: svc} }
 
 type std_output struct {
-	Body response.Response
+	Status int `json:"-"`
+	Body   response.Response
 }
 
 func (h *handler) register(api huma.API) {
@@ -37,16 +38,21 @@ func (h *handler) registerUsers(api huma.API) {
 		Tags:        []string{"admin"},
 	}, func(ctx context.Context, in *struct {
 		Role   string `query:"role"`
-		Active *bool  `query:"active"`
+		Active string `query:"active"`
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
-		users, err := h.svc.ListUsers(ctx, store.UserFilter{Role: in.Role, Active: in.Active})
+		var active *bool
+		if in.Active != "" {
+			b := in.Active == "true"
+			active = &b
+		}
+		users, err := h.svc.ListUsers(ctx, store.UserFilter{Role: in.Role, Active: active})
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(users, "ok")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(users, "ok")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -59,13 +65,13 @@ func (h *handler) registerUsers(api huma.API) {
 		ID string `path:"id"`
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		u, err := h.svc.GetUser(ctx, in.ID)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(u, "ok")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(u, "ok")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -82,12 +88,12 @@ func (h *handler) registerUsers(api huma.API) {
 		}
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.PatchUser(ctx, in.ID, store.UserPatch{Full_name: in.Body.Full_name, Active: in.Body.Active}); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "user_updated")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "user_updated")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -104,11 +110,11 @@ func (h *handler) registerUsers(api huma.API) {
 	}) (*std_output, error) {
 		caller, ok := ctxkeys.UserFromContext(ctx)
 		if !ok || caller.Role != store.Role_superadmin {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		// Role changes require superadmin to prevent privilege escalation
 		_ = in.Body.Role
-		return &std_output{Body: response.Ok(nil, "role_updated")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "role_updated")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -121,12 +127,12 @@ func (h *handler) registerUsers(api huma.API) {
 		ID string `path:"id"`
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.DeactivateUser(ctx, in.ID); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "user_deactivated")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "user_deactivated")}, nil
 	})
 }
 
@@ -144,13 +150,13 @@ func (h *handler) registerTalents(api huma.API) {
 		Offset   int    `query:"offset"`
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		talents, err := h.svc.st.ListTalents(ctx, store.TalentFilter{Status: in.Status, Category: in.Category, Limit: in.Limit, Offset: in.Offset})
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(talents, "ok")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(talents, "ok")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -163,13 +169,13 @@ func (h *handler) registerTalents(api huma.API) {
 		ID string `path:"id"`
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		t, err := h.svc.st.GetTalentByID(ctx, in.ID)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(t, "ok")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(t, "ok")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -185,12 +191,12 @@ func (h *handler) registerTalents(api huma.API) {
 		}
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.ApproveTalent(ctx, in.ID, store.Talent_category(in.Body.Category)); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "talent_approved")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "talent_approved")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -203,12 +209,12 @@ func (h *handler) registerTalents(api huma.API) {
 		ID string `path:"id"`
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.RejectTalent(ctx, in.ID); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "talent_rejected")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "talent_rejected")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -229,7 +235,7 @@ func (h *handler) registerTalents(api huma.API) {
 		}
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		patch := store.TalentPatch{
 			Rate_per_day:  in.Body.Rate_per_day,
@@ -240,9 +246,9 @@ func (h *handler) registerTalents(api huma.API) {
 			Category:      in.Body.Category,
 		}
 		if err := h.svc.PatchTalent(ctx, in.ID, patch); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "talent_updated")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "talent_updated")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -255,12 +261,12 @@ func (h *handler) registerTalents(api huma.API) {
 		ID string `path:"id"`
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.SuspendTalent(ctx, in.ID); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "talent_suspended")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "talent_suspended")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -273,12 +279,12 @@ func (h *handler) registerTalents(api huma.API) {
 		ID string `path:"id"`
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.ReinstateTalent(ctx, in.ID); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "talent_reinstated")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "talent_reinstated")}, nil
 	})
 }
 
@@ -296,13 +302,13 @@ func (h *handler) registerViewers(api huma.API) {
 		}
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		v := store.CampaignViewer{Campaign_id: in.ID, Name: in.Body.Name, Active: true}
 		if err := h.svc.CreateViewer(ctx, v); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "viewer_created")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "viewer_created")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -315,13 +321,13 @@ func (h *handler) registerViewers(api huma.API) {
 		ID string `path:"id"`
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		viewers, err := h.svc.ListViewers(ctx, in.ID)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(viewers, "ok")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(viewers, "ok")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -339,12 +345,12 @@ func (h *handler) registerViewers(api huma.API) {
 		}
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.PatchViewer(ctx, in.Vid, store.ViewerPatch{Name: in.Body.Name, Active: in.Body.Active}); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "viewer_updated")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "viewer_updated")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -362,13 +368,13 @@ func (h *handler) registerViewers(api huma.API) {
 		}
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		p := store.ViewerPassword{Viewer_id: in.Vid, Label: in.Body.Label, Password_hash: in.Body.Password_hash, Active: true}
 		if err := h.svc.AddViewerPassword(ctx, p); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "password_added")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "password_added")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -382,13 +388,13 @@ func (h *handler) registerViewers(api huma.API) {
 		Vid string `path:"vid"`
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		passwords, err := h.svc.ListViewerPasswords(ctx, in.Vid)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(passwords, "ok")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(passwords, "ok")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -403,9 +409,9 @@ func (h *handler) registerViewers(api huma.API) {
 		Pid string `path:"pid"`
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "password_updated")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "password_updated")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -420,12 +426,12 @@ func (h *handler) registerViewers(api huma.API) {
 		Pid string `path:"pid"`
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.DeactivateViewerPassword(ctx, in.Pid); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "password_deactivated")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "password_deactivated")}, nil
 	})
 }
 
@@ -441,13 +447,13 @@ func (h *handler) registerAudit(api huma.API) {
 		Entity_id   string `query:"entity_id"`
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		entries, err := h.svc.ListAudit(ctx, in.Entity_type, in.Entity_id)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(entries, "ok")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(entries, "ok")}, nil
 	})
 }
 

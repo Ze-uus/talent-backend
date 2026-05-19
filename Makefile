@@ -2,13 +2,14 @@ BINARY_NAME  = scaloo
 MAIN_PATH    = ./cmd
 DC           = docker compose
 GOOSE        = goose
-DB_URL       = $(shell grep '^DATABASE_URL=' .env.local | cut -d '=' -f2-)
+SQLC         = $(shell go env GOPATH)/bin/sqlc
+DB_URL       = $(shell grep '^DATABASE_URL=' .env.local | cut -d '=' -f2- | tr -d '"')
 VERSION     ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
-.PHONY: all setup dev ci build run run-watch clean \
+.PHONY: all setup dev dev-watch ci build run run-watch clean \
         test test-algo test-jobs test-services test-coverage test-integration test-load test-load-tracking \
         lint vet tidy \
-        docker-up docker-up-build docker-down docker-down-volumes docker-build docker-logs \
+        docker-up docker-up-db docker-up-build docker-down docker-down-volumes docker-build docker-logs \
         migrate-up migrate-down migrate-reset migrate-status migrate-create \
         docs-update docs-serve \
         install-tools install-hooks sqlc-generate help
@@ -17,14 +18,17 @@ VERSION     ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 
 
 # Full check: lint → test → migrate → build → spin containers
 all: tidy vet lint test migrate-up build docker-up-build
-	@echo "✓ Scaloo ready — http://localhost:8080/v1/docs"
+	@echo "✓ Scaloo ready — http://localhost:8080/docs"
 
 # First-time setup from zero
 setup: install-tools tidy vet lint migrate-up test
 	@echo "✓ Setup complete. Run 'make dev' to start."
 
-# Daily dev cycle (assumes docker already up)
-dev: docker-up migrate-up run
+# Daily dev cycle — starts only the DB container, migrates, runs server
+dev: docker-up-db migrate-up run
+
+# Same as dev but with hot-reload
+dev-watch: docker-up-db migrate-up run-watch
 
 # CI-equivalent gate — what the pipeline runs
 ci: tidy vet lint test-coverage build
@@ -101,6 +105,10 @@ docker-up:
 	@echo "→ Starting containers..."
 	$(DC) up -d
 
+docker-up-db:
+	@echo "→ Starting DB container..."
+	$(DC) up -d --wait db
+
 docker-up-build:
 	@echo "→ Building and starting containers..."
 	$(DC) up -d --build
@@ -146,13 +154,13 @@ migrate-create:
 
 docs-update:
 	@echo "→ Dumping OpenAPI spec (server must be on :8080)..."
-	curl -sf http://localhost:8080/v1/openapi.json | jq . > docs/openapi.json
-	curl -sf http://localhost:8080/v1/openapi.yaml > docs/openapi.yaml
+	curl -sf http://localhost:8080/openapi.json | jq . > docs/openapi.json
+	curl -sf http://localhost:8080/openapi.yaml > docs/openapi.yaml
 	@echo "→ Spec written to docs/"
 
 docs-serve:
-	@echo "→ Docs: http://localhost:8080/v1/docs"
-	@echo "→ Spec: http://localhost:8080/v1/openapi.json"
+	@echo "→ Docs: http://localhost:8080/docs"
+	@echo "→ Spec: http://localhost:8080/openapi.json"
 
 # ─── Utilities ────────────────────────────────────────────────────────────────
 
@@ -160,7 +168,7 @@ install-tools:
 	@echo "→ Installing dev tools..."
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 	go install github.com/pressly/goose/v3/cmd/goose@latest
-	go install github.com/cosmtrek/air@latest
+	go install github.com/air-verse/air@latest
 	go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
 
 install-hooks: ## Install git pre-commit hook
@@ -170,7 +178,7 @@ install-hooks: ## Install git pre-commit hook
 
 sqlc-generate:
 	@echo "→ Generating sqlc queries..."
-	sqlc generate
+	$(SQLC) generate
 
 clean:
 	rm -rf bin/ coverage.out coverage.html
@@ -184,7 +192,8 @@ help:
 	@echo "  Primary"
 	@echo "    make all              lint + test + migrate + build + docker (full cycle)"
 	@echo "    make setup            first-time setup from clone"
-	@echo "    make dev              docker-up + migrate + run (daily dev)"
+	@echo "    make dev              DB container + migrate + run (daily dev)"
+	@echo "    make dev-watch        DB container + migrate + run-watch (hot-reload)"
 	@echo "    make ci               lint + test-coverage + build (pipeline gate)"
 	@echo ""
 	@echo "  Application"

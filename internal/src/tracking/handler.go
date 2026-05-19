@@ -16,7 +16,8 @@ type handler struct {
 func newHandler(svc *TrackingService) *handler { return &handler{svc: svc} }
 
 type std_output struct {
-	Body response.Response
+	Status int `json:"-"`
+	Body   response.Response
 }
 
 func (h *handler) register(api huma.API) {
@@ -26,6 +27,7 @@ func (h *handler) register(api huma.API) {
 		Path:        "/track/{token}",
 		Summary:     "Conversion event ingestion",
 		Tags:        []string{"tracking"},
+		Security:    []map[string][]string{},
 	}, func(ctx context.Context, in *struct {
 		Token string `path:"token"`
 		Body  struct {
@@ -35,8 +37,8 @@ func (h *handler) register(api huma.API) {
 		}
 	}) (*std_output, error) {
 		if err := h.svc.LogEvent(ctx, in.Token, in.Body.Event_type, in.Body.KPB_type, in.Body.Idempotency_key); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "event_logged")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "event_logged")}, nil
 	})
 }

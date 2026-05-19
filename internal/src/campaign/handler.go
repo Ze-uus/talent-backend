@@ -18,7 +18,8 @@ type handler struct {
 func newHandler(svc *CampaignService) *handler { return &handler{svc: svc} }
 
 type std_output struct {
-	Body response.Response
+	Status int `json:"-"`
+	Body   response.Response
 }
 
 func (h *handler) register(api huma.API) {
@@ -46,7 +47,7 @@ func (h *handler) registerCampaigns(api huma.API) {
 		}
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		c := store.Campaign{
 			Brand_id:      in.Body.Brand_id,
@@ -60,9 +61,9 @@ func (h *handler) registerCampaigns(api huma.API) {
 		}
 		created, err := h.svc.Create(ctx, c)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(created, "campaign_created")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(created, "campaign_created")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -79,23 +80,23 @@ func (h *handler) registerCampaigns(api huma.API) {
 	}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok {
-			return &std_output{Body: response.Fail("unauthenticated")}, nil
+			return &std_output{Status: 401, Body: response.Fail("unauthenticated")}, nil
 		}
 		if u.Role == store.Role_campaign_manager {
 			campaigns, err := h.svc.st.GetCampaignsByManagerID(ctx, u.ID)
 			if err != nil {
-				return &std_output{Body: response.Fail(err.Error())}, nil
+				return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 			}
-			return &std_output{Body: response.Ok(campaigns, "ok")}, nil
+			return &std_output{Status: http.StatusOK, Body: response.Ok(campaigns, "ok")}, nil
 		}
 		if !isAdminRole(u.Role) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		campaigns, err := h.svc.List(ctx, store.CampaignFilter{Status: in.Status, Brand_id: in.Brand_id, Limit: in.Limit, Offset: in.Offset})
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(campaigns, "ok")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(campaigns, "ok")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -109,20 +110,20 @@ func (h *handler) registerCampaigns(api huma.API) {
 	}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok {
-			return &std_output{Body: response.Fail("unauthenticated")}, nil
+			return &std_output{Status: 401, Body: response.Fail("unauthenticated")}, nil
 		}
 		c, err := h.svc.Get(ctx, in.ID)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
 		if u.Role == store.Role_campaign_manager {
 			if !managerOwnsCampaign(ctx, h.svc.st, u.ID, in.ID) {
-				return &std_output{Body: response.Fail("insufficient_role")}, nil
+				return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 			}
 		} else if !isAdminRole(u.Role) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
-		return &std_output{Body: response.Ok(c, "ok")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(c, "ok")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -142,7 +143,7 @@ func (h *handler) registerCampaigns(api huma.API) {
 		}
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		patch := store.CampaignPatch{
 			Name:             in.Body.Name,
@@ -152,9 +153,9 @@ func (h *handler) registerCampaigns(api huma.API) {
 			Creators_allowed: in.Body.Creators_allowed,
 		}
 		if err := h.svc.Patch(ctx, in.ID, patch); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "campaign_updated")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "campaign_updated")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -167,12 +168,12 @@ func (h *handler) registerCampaigns(api huma.API) {
 		ID string `path:"id"`
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.Archive(ctx, in.ID); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "campaign_archived")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "campaign_archived")}, nil
 	})
 }
 
@@ -192,7 +193,7 @@ func (h *handler) registerCycles(api huma.API) {
 		}
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		c := store.Cycle{
 			Campaign_id:     in.ID,
@@ -201,9 +202,9 @@ func (h *handler) registerCycles(api huma.API) {
 		}
 		created, err := h.svc.CreateCycle(ctx, c)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(created, "cycle_created")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(created, "cycle_created")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -217,18 +218,18 @@ func (h *handler) registerCycles(api huma.API) {
 	}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok {
-			return &std_output{Body: response.Fail("unauthenticated")}, nil
+			return &std_output{Status: 401, Body: response.Fail("unauthenticated")}, nil
 		}
 		if u.Role == store.Role_campaign_manager && !managerOwnsCampaign(ctx, h.svc.st, u.ID, in.ID) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		} else if !isAdminRole(u.Role) && u.Role != store.Role_campaign_manager {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		cycles, err := h.svc.ListCycles(ctx, in.ID)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(cycles, "ok")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(cycles, "ok")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -243,18 +244,18 @@ func (h *handler) registerCycles(api huma.API) {
 	}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok {
-			return &std_output{Body: response.Fail("unauthenticated")}, nil
+			return &std_output{Status: 401, Body: response.Fail("unauthenticated")}, nil
 		}
 		if u.Role == store.Role_campaign_manager && !managerOwnsCampaign(ctx, h.svc.st, u.ID, in.ID) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		} else if !isAdminRole(u.Role) && u.Role != store.Role_campaign_manager {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		cycle, err := h.svc.GetCycle(ctx, in.Cid)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(cycle, "ok")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(cycle, "ok")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -273,7 +274,7 @@ func (h *handler) registerCycles(api huma.API) {
 		}
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		patch := store.CyclePatch{
 			Cycle_budget:    in.Body.Cycle_budget,
@@ -281,9 +282,9 @@ func (h *handler) registerCycles(api huma.API) {
 			Z_factor:        in.Body.Z_factor,
 		}
 		if err := h.svc.PatchCycle(ctx, in.Cid, patch); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "cycle_updated")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "cycle_updated")}, nil
 	})
 
 	for _, op := range []struct {
@@ -309,12 +310,12 @@ func (h *handler) registerCycles(api huma.API) {
 			Cid string `path:"cid"`
 		}) (*std_output, error) {
 			if !isAdminOrAbove(ctx) {
-				return &std_output{Body: response.Fail("insufficient_role")}, nil
+				return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 			}
 			if err := op.action(ctx, in.Cid); err != nil {
-				return &std_output{Body: response.Fail(err.Error())}, nil
+				return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 			}
-			return &std_output{Body: response.Ok(nil, op.msg)}, nil
+			return &std_output{Status: http.StatusOK, Body: response.Ok(nil, op.msg)}, nil
 		})
 	}
 
@@ -329,12 +330,12 @@ func (h *handler) registerCycles(api huma.API) {
 		Cid string `path:"cid"`
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
-			return &std_output{Body: response.Fail("insufficient_role")}, nil
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.FinalisePayouts(ctx, in.Cid); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "payouts_finalised")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "payouts_finalised")}, nil
 	})
 }
 

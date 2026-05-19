@@ -24,6 +24,7 @@ type STECResult struct {
 	ZDR      float64   `json:"zdr"`
 	Pattern  string    `json:"pattern"`
 	Delta_st float64   `json:"delta_st"`
+	Mu_st    float64   `json:"mu_st"`    // weighted short-term mean (used as PDC_override on breakout)
 	PDC_next float64   `json:"pdc_next"`
 }
 
@@ -92,7 +93,7 @@ func ComputeSTEC(d DailyOutputs, z float64) (STECResult, error) {
 	return STECResult{
 		URs: urs, Mu_ur: mu_ur, Sigma_ur: sigma_ur,
 		REL: rel, ZDR: zdr,
-		Pattern: pattern, Delta_st: delta_st, PDC_next: pdc_next,
+		Pattern: pattern, Delta_st: delta_st, Mu_st: mu_st, PDC_next: pdc_next,
 	}, nil
 }
 

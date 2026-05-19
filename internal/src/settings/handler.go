@@ -18,7 +18,8 @@ type handler struct {
 func newHandler(svc *SettingsService) *handler { return &handler{svc: svc} }
 
 type std_output struct {
-	Body response.Response
+	Status int `json:"-"`
+	Body   response.Response
 }
 
 func (h *handler) register(api huma.API) {
@@ -38,13 +39,13 @@ func (h *handler) registerProfile(api huma.API) {
 	}, func(ctx context.Context, _ *struct{}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok {
-			return &std_output{Body: response.Fail("unauthenticated")}, nil
+			return &std_output{Status: 401, Body: response.Fail("unauthenticated")}, nil
 		}
 		profile, err := h.svc.GetProfile(ctx, u.ID)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(profile, "ok")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(profile, "ok")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -61,16 +62,16 @@ func (h *handler) registerProfile(api huma.API) {
 	}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok {
-			return &std_output{Body: response.Fail("unauthenticated")}, nil
+			return &std_output{Status: 401, Body: response.Fail("unauthenticated")}, nil
 		}
 		patch := store.UserPatch{
 			Full_name:  in.Body.Full_name,
 			Avatar_url: in.Body.Avatar_url,
 		}
 		if err := h.svc.PatchProfile(ctx, u.ID, patch); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "profile_updated")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "profile_updated")}, nil
 	})
 }
 
@@ -89,12 +90,12 @@ func (h *handler) registerPassword(api huma.API) {
 	}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok {
-			return &std_output{Body: response.Fail("unauthenticated")}, nil
+			return &std_output{Status: 401, Body: response.Fail("unauthenticated")}, nil
 		}
 		if err := h.svc.ChangePassword(ctx, u.ID, in.Body.Old_password, in.Body.New_password); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "password_changed")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "password_changed")}, nil
 	})
 }
 
@@ -108,13 +109,13 @@ func (h *handler) registerTOTP(api huma.API) {
 	}, func(ctx context.Context, _ *struct{}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok {
-			return &std_output{Body: response.Fail("unauthenticated")}, nil
+			return &std_output{Status: 401, Body: response.Fail("unauthenticated")}, nil
 		}
 		secret, qr_uri, err := h.svc.EnrollTOTP(ctx, u.ID)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(map[string]string{
+		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]string{
 			"secret": secret,
 			"qr_uri": qr_uri,
 		}, "ok")}, nil
@@ -133,12 +134,12 @@ func (h *handler) registerTOTP(api huma.API) {
 	}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok {
-			return &std_output{Body: response.Fail("unauthenticated")}, nil
+			return &std_output{Status: 401, Body: response.Fail("unauthenticated")}, nil
 		}
 		if err := h.svc.VerifyTOTP(ctx, u.ID, in.Body.Code); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "totp_enabled")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "totp_enabled")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -150,15 +151,15 @@ func (h *handler) registerTOTP(api huma.API) {
 	}, func(ctx context.Context, _ *struct{}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok {
-			return &std_output{Body: response.Fail("unauthenticated")}, nil
+			return &std_output{Status: 401, Body: response.Fail("unauthenticated")}, nil
 		}
 		if u.Role != store.Role_talent {
-			return &std_output{Body: response.Fail("forbidden")}, nil
+			return &std_output{Status: 403, Body: response.Fail("forbidden")}, nil
 		}
 		if err := h.svc.DisableTOTP(ctx, u.ID); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "totp_disabled")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "totp_disabled")}, nil
 	})
 }
 
@@ -172,13 +173,13 @@ func (h *handler) registerSessions(api huma.API) {
 	}, func(ctx context.Context, _ *struct{}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok {
-			return &std_output{Body: response.Fail("unauthenticated")}, nil
+			return &std_output{Status: 401, Body: response.Fail("unauthenticated")}, nil
 		}
 		sessions, err := h.svc.ListSessions(ctx, u.ID)
 		if err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(sessions, "ok")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(sessions, "ok")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -192,12 +193,12 @@ func (h *handler) registerSessions(api huma.API) {
 	}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok {
-			return &std_output{Body: response.Fail("unauthenticated")}, nil
+			return &std_output{Status: 401, Body: response.Fail("unauthenticated")}, nil
 		}
 		if err := h.svc.RevokeSession(ctx, in.ID, u.ID); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "session_revoked")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "session_revoked")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -209,11 +210,11 @@ func (h *handler) registerSessions(api huma.API) {
 	}, func(ctx context.Context, _ *struct{}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
 		if !ok {
-			return &std_output{Body: response.Fail("unauthenticated")}, nil
+			return &std_output{Status: 401, Body: response.Fail("unauthenticated")}, nil
 		}
 		if err := h.svc.RevokeAllSessions(ctx, u.ID); err != nil {
-			return &std_output{Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Body: response.Ok(nil, "sessions_revoked")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "sessions_revoked")}, nil
 	})
 }

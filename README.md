@@ -32,6 +32,8 @@ applicants each time.
 - **Talent** — own conversion metrics over WebSocket (`/ws/talent/{cycle_id}`)
 - **Campaign client** — read-only trend feed over SSE (`/stream/{viewer_token}`)
 
+See [docs/websocket-events.md](docs/websocket-events.md) for the full WebSocket event catalog and shard payload reference.
+
 **Auth model (Option D):**
 - Admin: invited via email → verifies invite → sets password → sets up TOTP → TOTP required every login
 - Talent: registers → awaits approval → sets up TOTP during onboarding → TOTP re-checked every 72h

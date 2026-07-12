@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 	"github.com/Ze-uus/talent-backend/internal/ctxkeys"
 	"github.com/Ze-uus/talent-backend/internal/domain"
+	"github.com/Ze-uus/talent-backend/internal/store"
 )
 
 // ─── Message types ────────────────────────────────────────────────────────────
@@ -19,8 +21,10 @@ import (
 type ws_message_type string
 
 const (
-	msg_anomaly    ws_message_type = "anomaly"
-	msg_conversion ws_message_type = "conversion"
+	msg_anomaly       ws_message_type = "anomaly"
+	msg_conversion    ws_message_type = "conversion"
+	msg_cycle_update  ws_message_type = "cycle_update"
+	msg_talent_update ws_message_type = "talent_update"
 )
 
 type WSMessage struct {
@@ -34,8 +38,11 @@ type WSMessage struct {
 // ─── Hub ─────────────────────────────────────────────────────────────────────
 
 type Hub struct {
-	anomaly_ch    <-chan domain.AnomalyEvent
-	conversion_ch <-chan domain.ConversionEvent
+	anomaly_ch       <-chan domain.AnomalyEvent
+	conversion_ch    <-chan domain.ConversionEvent
+	cycle_update_ch  <-chan domain.CycleUpdateEvent
+	talent_update_ch <-chan domain.TalentUpdateEvent
+	st               store.Store
 
 	// admin_clients: cycle_id → set of clients (see all events for that cycle)
 	admin_clients map[string]map[*client]bool
@@ -48,15 +55,25 @@ type Hub struct {
 	log        *slog.Logger
 }
 
-func NewHub(anomaly_ch <-chan domain.AnomalyEvent, conversion_ch <-chan domain.ConversionEvent, log *slog.Logger) *Hub {
+func NewHub(
+	anomaly_ch <-chan domain.AnomalyEvent,
+	conversion_ch <-chan domain.ConversionEvent,
+	cycle_update_ch <-chan domain.CycleUpdateEvent,
+	talent_update_ch <-chan domain.TalentUpdateEvent,
+	st store.Store,
+	log *slog.Logger,
+) *Hub {
 	return &Hub{
-		anomaly_ch:     anomaly_ch,
-		conversion_ch:  conversion_ch,
-		admin_clients:  make(map[string]map[*client]bool),
-		talent_clients: make(map[string]map[*client]bool),
-		register:       make(chan *client, 32),
-		unregister:     make(chan *client, 32),
-		log:            log,
+		anomaly_ch:       anomaly_ch,
+		conversion_ch:    conversion_ch,
+		cycle_update_ch:  cycle_update_ch,
+		talent_update_ch: talent_update_ch,
+		st:               st,
+		admin_clients:    make(map[string]map[*client]bool),
+		talent_clients:   make(map[string]map[*client]bool),
+		register:         make(chan *client, 32),
+		unregister:       make(chan *client, 32),
+		log:              log,
 	}
 }
 
@@ -122,6 +139,30 @@ func (h *Hub) Run(ctx context.Context) {
 				Timestamp: time.Now().UTC(),
 			}
 			h.broadcastToAdmins(ev.Cycle_id, msg)
+
+		case ev := <-h.cycle_update_ch:
+			msg := WSMessage{
+				Type:      msg_cycle_update,
+				Cycle_id:  ev.Cycle_id,
+				Payload:   ev,
+				Timestamp: time.Now().UTC(),
+			}
+			h.broadcastToAdmins(ev.Cycle_id, msg)
+
+		case ev := <-h.talent_update_ch:
+			msg := WSMessage{
+				Type:      msg_talent_update,
+				Cycle_id:  ev.Cycle_id,
+				Talent_id: ev.Talent_id,
+				Payload:   ev,
+				Timestamp: time.Now().UTC(),
+			}
+			if ev.Cycle_id != "" {
+				h.broadcastToAdmins(ev.Cycle_id, msg)
+				h.broadcastToTalent(ev.Talent_id, ev.Cycle_id, msg)
+			} else {
+				h.broadcastToTalentAllCycles(ev.Talent_id, msg)
+			}
 		}
 	}
 }
@@ -157,6 +198,28 @@ func (h *Hub) broadcastToTalent(talent_id, cycle_id string, msg WSMessage) {
 		case c.send <- b:
 		default:
 			h.log.Warn("ws: talent client send buffer full, dropping message", "talent_id", talent_id)
+		}
+	}
+}
+
+func (h *Hub) broadcastToTalentAllCycles(talent_id string, msg WSMessage) {
+	b, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	prefix := talent_id + ":"
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for key, clients := range h.talent_clients {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		for c := range clients {
+			select {
+			case c.send <- b:
+			default:
+				h.log.Warn("ws: talent client send buffer full, dropping message", "talent_id", talent_id)
+			}
 		}
 	}
 }
@@ -197,13 +260,18 @@ func (h *Hub) ServeTalent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthenticated", http.StatusUnauthorized)
 		return
 	}
+	talent, err := h.st.GetTalentByUserID(r.Context(), u.ID)
+	if err != nil {
+		http.Error(w, "talent_not_found", http.StatusForbidden)
+		return
+	}
 	cycle_id := r.PathValue("cycle_id")
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		h.log.Error("ws talent upgrade failed", "err", err)
 		return
 	}
-	c := &client{hub: h, conn: conn, send: make(chan []byte, 256), cycle_id: cycle_id, talent_id: u.ID, is_admin: false}
+	c := &client{hub: h, conn: conn, send: make(chan []byte, 256), cycle_id: cycle_id, talent_id: talent.ID, is_admin: false}
 	h.register <- c
 	go c.writePump()
 	go c.readPump()
@@ -221,9 +289,9 @@ type client struct {
 }
 
 const (
-	write_wait      = 10 * time.Second
-	pong_wait       = 60 * time.Second
-	ping_period     = (pong_wait * 9) / 10
+	write_wait       = 10 * time.Second
+	pong_wait        = 60 * time.Second
+	ping_period      = (pong_wait * 9) / 10
 	max_message_size = 512
 )
 

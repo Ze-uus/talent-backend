@@ -52,25 +52,28 @@ func main() {
 		os.Exit(1)
 	}
 
-	// ─── Services (payout before campaign — campaign depends on payout) ─────────
-
-	authSvc := authsvc.NewAuthService(db, "Scaloo")
-	payout := payoutsvc.New(db)
-	campaign := campaignsvc.New(db, payout)
-	brand := brandsvc.New(db)
-	talent := talentsvc.New(db)
-	assignment := assignmentsvc.New(db)
-	admin := adminsvc.New(db)
-	settings := settingssvc.New(db, authSvc)
-	tracking := trackingsvc.New(db)
-
 	// ─── Real-time channels ──────────────────────────────────────────────────────
 
 	anomaly_ch := make(chan domain.AnomalyEvent, 256)
 	conversion_ch := make(chan domain.ConversionEvent, 512)
+	cycle_update_ch := make(chan domain.CycleUpdateEvent, 64)
+	talent_update_ch := make(chan domain.TalentUpdateEvent, 64)
 
-	hub := ws.NewHub(anomaly_ch, conversion_ch, log)
+	hub := ws.NewHub(anomaly_ch, conversion_ch, cycle_update_ch, talent_update_ch, db, log)
 	sse := ws.NewSSEHandler(db, 5*time.Second)
+
+	authSvc := authsvc.NewAuthService(db, "Scaloo")
+
+	// ─── Services (channels wired after hub creation) ───────────────────────────
+
+	payout := payoutsvc.New(db)
+	campaign := campaignsvc.New(db, payout, cycle_update_ch, log)
+	brand := brandsvc.New(db)
+	talent := talentsvc.New(db)
+	assignment := assignmentsvc.New(db, talent_update_ch, log)
+	admin := adminsvc.New(db, talent_update_ch, log)
+	settings := settingssvc.New(db, authSvc)
+	tracking := trackingsvc.New(db, conversion_ch, log)
 
 	// ─── Router + global middleware ──────────────────────────────────────────────
 

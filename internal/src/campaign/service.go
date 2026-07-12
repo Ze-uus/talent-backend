@@ -3,20 +3,37 @@ package campaign
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/Ze-uus/talent-backend/internal/algo"
+	"github.com/Ze-uus/talent-backend/internal/domain"
 	payoutsvc "github.com/Ze-uus/talent-backend/internal/src/payout"
 	"github.com/Ze-uus/talent-backend/internal/store"
+	ws "github.com/Ze-uus/talent-backend/internal/websocket"
 )
 
 type CampaignService struct {
-	st     store.Store
-	payout *payoutsvc.PayoutService
+	st              store.Store
+	payout          *payoutsvc.PayoutService
+	cycle_update_ch chan<- domain.CycleUpdateEvent
+	log             *slog.Logger
 }
 
-func New(s store.Store, p *payoutsvc.PayoutService) *CampaignService {
-	return &CampaignService{st: s, payout: p}
+func New(s store.Store, p *payoutsvc.PayoutService, cycle_update_ch chan<- domain.CycleUpdateEvent, log *slog.Logger) *CampaignService {
+	return &CampaignService{st: s, payout: p, cycle_update_ch: cycle_update_ch, log: log}
+}
+
+func (s *CampaignService) emitCycleUpdate(cycle store.Cycle, update_type string) {
+	ws.TryPush(s.cycle_update_ch, domain.CycleUpdateEvent{
+		Cycle_id:    cycle.ID,
+		Campaign_id: cycle.Campaign_id,
+		Update_type: update_type,
+		Shard: domain.CycleUpdateShard{
+			Status:           string(cycle.Status),
+			Remaining_budget: cycle.Remaining_budget,
+		},
+	}, s.log, "cycle_update_ch full, event dropped", "cycle_id", cycle.ID, "update_type", update_type)
 }
 
 // ─── Campaign CRUD ────────────────────────────────────────────────────────────
@@ -125,7 +142,12 @@ func (s *CampaignService) CreateCycle(ctx context.Context, c store.Cycle) (store
 		}
 	}
 
-	return s.st.GetCycleByID(ctx, c.ID)
+	created, err := s.st.GetCycleByID(ctx, c.ID)
+	if err != nil {
+		return store.Cycle{}, err
+	}
+	s.emitCycleUpdate(created, "created")
+	return created, nil
 }
 
 func (s *CampaignService) ListCycles(ctx context.Context, campaign_id string) ([]store.Cycle, error) {
@@ -137,22 +159,54 @@ func (s *CampaignService) GetCycle(ctx context.Context, id string) (store.Cycle,
 }
 
 func (s *CampaignService) PatchCycle(ctx context.Context, id string, patch store.CyclePatch) error {
-	return s.st.UpdateCycle(ctx, id, patch)
+	if err := s.st.UpdateCycle(ctx, id, patch); err != nil {
+		return err
+	}
+	cycle, err := s.st.GetCycleByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	s.emitCycleUpdate(cycle, "patched")
+	return nil
 }
 
 func (s *CampaignService) ActivateCycle(ctx context.Context, id string) error {
 	status := string(store.Cycle_active)
-	return s.st.UpdateCycle(ctx, id, store.CyclePatch{Status: &status})
+	if err := s.st.UpdateCycle(ctx, id, store.CyclePatch{Status: &status}); err != nil {
+		return err
+	}
+	cycle, err := s.st.GetCycleByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	s.emitCycleUpdate(cycle, "activated")
+	return nil
 }
 
 func (s *CampaignService) PauseCycle(ctx context.Context, id string) error {
 	status := "paused"
-	return s.st.UpdateCycle(ctx, id, store.CyclePatch{Status: &status})
+	if err := s.st.UpdateCycle(ctx, id, store.CyclePatch{Status: &status}); err != nil {
+		return err
+	}
+	cycle, err := s.st.GetCycleByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	s.emitCycleUpdate(cycle, "paused")
+	return nil
 }
 
 func (s *CampaignService) CloseCycle(ctx context.Context, id string) error {
 	status := string(store.Cycle_closed)
-	return s.st.UpdateCycle(ctx, id, store.CyclePatch{Status: &status})
+	if err := s.st.UpdateCycle(ctx, id, store.CyclePatch{Status: &status}); err != nil {
+		return err
+	}
+	cycle, err := s.st.GetCycleByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	s.emitCycleUpdate(cycle, "closed")
+	return nil
 }
 
 // FinalisePayouts (Story 24): locks fallback conversions then computes payouts.
@@ -167,7 +221,15 @@ func (s *CampaignService) FinalisePayouts(ctx context.Context, cycle_id string) 
 	if err := s.st.LockFallbackConversions(ctx, cycle_id); err != nil {
 		return err
 	}
-	return s.payout.ComputeAndStoreCyclePayout(ctx, cycle_id)
+	if err := s.payout.ComputeAndStoreCyclePayout(ctx, cycle_id); err != nil {
+		return err
+	}
+	updated, err := s.st.GetCycleByID(ctx, cycle_id)
+	if err != nil {
+		return err
+	}
+	s.emitCycleUpdate(updated, "payouts_finalised")
+	return nil
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

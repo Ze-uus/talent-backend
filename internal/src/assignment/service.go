@@ -4,17 +4,24 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"log/slog"
 	"time"
 
 	"github.com/Ze-uus/talent-backend/internal/algo"
+	"github.com/Ze-uus/talent-backend/internal/domain"
 	"github.com/Ze-uus/talent-backend/internal/store"
+	ws "github.com/Ze-uus/talent-backend/internal/websocket"
 )
 
 type AssignmentService struct {
-	st store.Store
+	st               store.Store
+	talent_update_ch chan<- domain.TalentUpdateEvent
+	log              *slog.Logger
 }
 
-func New(s store.Store) *AssignmentService { return &AssignmentService{st: s} }
+func New(s store.Store, talent_update_ch chan<- domain.TalentUpdateEvent, log *slog.Logger) *AssignmentService {
+	return &AssignmentService{st: s, talent_update_ch: talent_update_ch, log: log}
+}
 
 type SolverOutput struct {
 	Cycle_id     string                         `json:"cycle_id"`
@@ -172,6 +179,18 @@ func (s *AssignmentService) ConfirmAssignments(
 		if err := s.st.CreateTrackingLink(ctx, link); err != nil {
 			return err
 		}
+		ws.TryPush(s.talent_update_ch, domain.TalentUpdateEvent{
+			Talent_id:   ca.Talent_id,
+			Cycle_id:    cycle_id,
+			Update_type: "assigned",
+			Shard: domain.TalentUpdateShard{
+				Status:         "active",
+				Cycle_id:       cycle_id,
+				Effective_tier: ca.Effective_tier,
+				Slot_id:        ca.Slot_id,
+				Tracking_token: link.Token,
+			},
+		}, s.log, "talent_update_ch full, event dropped", "talent_id", ca.Talent_id, "cycle_id", cycle_id)
 	}
 	if is_override {
 		_ = s.st.WriteAuditLog(ctx, store.AuditLog{

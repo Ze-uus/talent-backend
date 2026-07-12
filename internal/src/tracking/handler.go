@@ -2,6 +2,7 @@ package tracking
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -37,6 +38,9 @@ func (h *handler) register(api huma.API) {
 		}
 	}) (*std_output, error) {
 		if err := h.svc.LogEvent(ctx, in.Token, in.Body.Event_type, in.Body.KPB_type, in.Body.Idempotency_key); err != nil {
+			if errors.Is(err, ErrDuplicateEvent) {
+				return &std_output{Status: http.StatusNoContent, Body: response.Ok(nil, "already_logged")}, nil
+			}
 			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "event_logged")}, nil

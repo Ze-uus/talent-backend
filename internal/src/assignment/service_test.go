@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Ze-uus/talent-backend/internal/algo"
+	"github.com/Ze-uus/talent-backend/internal/domain"
 	"github.com/Ze-uus/talent-backend/internal/src/assignment"
 	"github.com/Ze-uus/talent-backend/internal/store"
 )
@@ -194,7 +195,7 @@ func TestRunSolver_MatchScoresComputed(t *testing.T) {
 	slots := makeSlots()
 	talents, baselines := makeTalentsAndBaselines()
 
-	svc := assignment.New(newMock(cycle, campaign, slots, talents, baselines))
+	svc := assignment.New(newMock(cycle, campaign, slots, talents, baselines), nil, nil)
 	output, err := svc.RunSolver(context.Background(), "cycle-1")
 	if err != nil {
 		t.Fatalf("RunSolver error: %v", err)
@@ -216,7 +217,7 @@ func TestRunSolver_MatchAdjustmentLowersCost(t *testing.T) {
 	slots := makeSlots()
 	talents, baselines := makeTalentsAndBaselines()
 
-	svc := assignment.New(newMock(cycle, campaign, slots, talents, baselines))
+	svc := assignment.New(newMock(cycle, campaign, slots, talents, baselines), nil, nil)
 	output, err := svc.RunSolver(context.Background(), "cycle-1")
 	if err != nil {
 		t.Fatalf("RunSolver error: %v", err)
@@ -229,13 +230,52 @@ func TestRunSolver_MatchAdjustmentLowersCost(t *testing.T) {
 	}
 }
 
+func TestConfirmAssignments_EmitsTalentUpdate(t *testing.T) {
+	cycle, campaign := makeCycleAndCampaign()
+	slots := makeSlots()
+	talents, baselines := makeTalentsAndBaselines()
+	ms := newMock(cycle, campaign, slots, talents, baselines)
+
+	ch := make(chan domain.TalentUpdateEvent, 4)
+	svc := assignment.New(ms, ch, nil)
+
+	solver_out, err := svc.RunSolver(context.Background(), "cycle-1")
+	if err != nil {
+		t.Fatalf("RunSolver error: %v", err)
+	}
+
+	confirmed := []assignment.ConfirmedAssignment{{
+		Talent_id:      "t1",
+		Slot_id:        "slot-1",
+		Role_label:     "primary",
+		PDC_mode:       store.Pdc_cold_start,
+		PDC_value:      5.0,
+		Effective_tier: 5000,
+	}}
+	if err := svc.ConfirmAssignments(context.Background(), "cycle-1", "camp-1", "actor-1", confirmed, solver_out, false); err != nil {
+		t.Fatalf("ConfirmAssignments error: %v", err)
+	}
+
+	select {
+	case ev := <-ch:
+		if ev.Update_type != "assigned" {
+			t.Fatalf("expected assigned, got %q", ev.Update_type)
+		}
+		if ev.Shard.Tracking_token == "" {
+			t.Fatal("expected tracking token in shard")
+		}
+	default:
+		t.Fatal("expected talent_update event")
+	}
+}
+
 func TestConfirmAssignments_MatchFieldsPersisted(t *testing.T) {
 	cycle, campaign := makeCycleAndCampaign()
 	slots := makeSlots()
 	talents, baselines := makeTalentsAndBaselines()
 	ms := newMock(cycle, campaign, slots, talents, baselines)
 
-	svc := assignment.New(ms)
+	svc := assignment.New(ms, nil, nil)
 	solver_out, err := svc.RunSolver(context.Background(), "cycle-1")
 	if err != nil {
 		t.Fatalf("RunSolver error: %v", err)

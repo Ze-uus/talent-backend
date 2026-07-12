@@ -115,11 +115,13 @@ func (j *DailyComputeJob) processTalent(
 
 	if breakout.Is_breakout {
 		ev := domain.AnomalyEvent{
-			Talent_id:    a.Talent_id,
-			Cycle_id:     cycle.ID,
-			Anomaly_type: "breakout",
-			Value:        breakout.PDC_override,
-			Timestamp:    time.Now().UTC(),
+			Talent_id: a.Talent_id,
+			Cycle_id:  cycle.ID,
+			Timestamp: time.Now().UTC(),
+			Shard: domain.AnomalyShard{
+				Anomaly_type: "breakout",
+				Value:        breakout.PDC_override,
+			},
 		}
 		select {
 		case j.anomaly_ch <- ev:
@@ -128,11 +130,13 @@ func (j *DailyComputeJob) processTalent(
 		}
 	} else if stec.Pattern == "collapse" {
 		ev := domain.AnomalyEvent{
-			Talent_id:    a.Talent_id,
-			Cycle_id:     cycle.ID,
-			Anomaly_type: "collapse",
-			Value:        stec.ZDR,
-			Timestamp:    time.Now().UTC(),
+			Talent_id: a.Talent_id,
+			Cycle_id:  cycle.ID,
+			Timestamp: time.Now().UTC(),
+			Shard: domain.AnomalyShard{
+				Anomaly_type: "collapse",
+				Value:        stec.ZDR,
+			},
 		}
 		select {
 		case j.anomaly_ch <- ev:

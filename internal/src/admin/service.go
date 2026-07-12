@@ -2,15 +2,31 @@ package admin
 
 import (
 	"context"
+	"log/slog"
 
+	"github.com/Ze-uus/talent-backend/internal/domain"
 	"github.com/Ze-uus/talent-backend/internal/store"
+	ws "github.com/Ze-uus/talent-backend/internal/websocket"
 )
 
 type AdminService struct {
-	st store.Store
+	st               store.Store
+	talent_update_ch chan<- domain.TalentUpdateEvent
+	log              *slog.Logger
 }
 
-func New(s store.Store) *AdminService { return &AdminService{st: s} }
+func New(s store.Store, talent_update_ch chan<- domain.TalentUpdateEvent, log *slog.Logger) *AdminService {
+	return &AdminService{st: s, talent_update_ch: talent_update_ch, log: log}
+}
+
+func (s *AdminService) emitTalentUpdate(talent_id, update_type string, shard domain.TalentUpdateShard) {
+	ws.TryPush(s.talent_update_ch, domain.TalentUpdateEvent{
+		Talent_id:   talent_id,
+		Cycle_id:    shard.Cycle_id,
+		Update_type: update_type,
+		Shard:       shard,
+	}, s.log, "talent_update_ch full, event dropped", "talent_id", talent_id, "update_type", update_type)
+}
 
 // ─── User management ──────────────────────────────────────────────────────────
 
@@ -36,26 +52,53 @@ func (s *AdminService) DeactivateUser(ctx context.Context, id string) error {
 func (s *AdminService) ApproveTalent(ctx context.Context, id string, category store.Talent_category) error {
 	status := string(store.Status_active)
 	cat := string(category)
-	return s.st.UpdateTalent(ctx, id, store.TalentPatch{Status: &status, Category: &cat})
+	if err := s.st.UpdateTalent(ctx, id, store.TalentPatch{Status: &status, Category: &cat}); err != nil {
+		return err
+	}
+	s.emitTalentUpdate(id, "approved", domain.TalentUpdateShard{Status: status, Category: cat})
+	return nil
 }
 
 func (s *AdminService) RejectTalent(ctx context.Context, id string) error {
 	status := string(store.Status_rejected)
-	return s.st.UpdateTalent(ctx, id, store.TalentPatch{Status: &status})
+	if err := s.st.UpdateTalent(ctx, id, store.TalentPatch{Status: &status}); err != nil {
+		return err
+	}
+	s.emitTalentUpdate(id, "rejected", domain.TalentUpdateShard{Status: status})
+	return nil
 }
 
 func (s *AdminService) SuspendTalent(ctx context.Context, id string) error {
 	status := string(store.Status_suspended)
-	return s.st.UpdateTalent(ctx, id, store.TalentPatch{Status: &status})
+	if err := s.st.UpdateTalent(ctx, id, store.TalentPatch{Status: &status}); err != nil {
+		return err
+	}
+	s.emitTalentUpdate(id, "suspended", domain.TalentUpdateShard{Status: status})
+	return nil
 }
 
 func (s *AdminService) ReinstateTalent(ctx context.Context, id string) error {
 	status := string(store.Status_active)
-	return s.st.UpdateTalent(ctx, id, store.TalentPatch{Status: &status})
+	if err := s.st.UpdateTalent(ctx, id, store.TalentPatch{Status: &status}); err != nil {
+		return err
+	}
+	s.emitTalentUpdate(id, "reinstated", domain.TalentUpdateShard{Status: status})
+	return nil
 }
 
 func (s *AdminService) PatchTalent(ctx context.Context, id string, patch store.TalentPatch) error {
-	return s.st.UpdateTalent(ctx, id, patch)
+	if err := s.st.UpdateTalent(ctx, id, patch); err != nil {
+		return err
+	}
+	talent, err := s.st.GetTalentByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	s.emitTalentUpdate(id, "patched", domain.TalentUpdateShard{
+		Status:   string(talent.Status),
+		Category: string(talent.Category),
+	})
+	return nil
 }
 
 // ─── Viewer management ────────────────────────────────────────────────────────

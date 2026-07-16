@@ -1,0 +1,16 @@
+.git
+.github
+.cursor
+.claude
+.env*
+!.env.example
+dev-files
+docs
+tests
+bin
+cmd.exe
+coverage.out
+coverage.html
+*.md
+!README.md
+Makefile

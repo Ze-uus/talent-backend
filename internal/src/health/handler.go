@@ -42,6 +42,7 @@ func (h *handler) register(api huma.API) {
 		Path:        "/health",
 		Summary:     "Health check with uptime and version",
 		Tags:        []string{"health"},
+		Security:    []map[string][]string{},
 	}, func(ctx context.Context, _ *struct{}) (*health_output, error) {
 		data := map[string]any{
 			"version":   h.version,
@@ -57,6 +58,7 @@ func (h *handler) register(api huma.API) {
 		Path:        "/health/live",
 		Summary:     "Liveness probe",
 		Tags:        []string{"health"},
+		Security:    []map[string][]string{},
 	}, func(ctx context.Context, _ *struct{}) (*health_output, error) {
 		return &health_output{Body: response.Ok(nil, "alive")}, nil
 	})
@@ -67,6 +69,7 @@ func (h *handler) register(api huma.API) {
 		Path:        "/health/ready",
 		Summary:     "Readiness probe — checks DB connectivity",
 		Tags:        []string{"health"},
+		Security:    []map[string][]string{},
 	}, func(ctx context.Context, _ *struct{}) (*health_output, error) {
 		if h.db == nil {
 			return &health_output{Body: response.Fail("db_not_configured")}, nil
@@ -83,6 +86,7 @@ func (h *handler) register(api huma.API) {
 		Path:        "/health/status",
 		Summary:     "Service status with dependency health",
 		Tags:        []string{"health"},
+		Security:    []map[string][]string{},
 	}, func(ctx context.Context, _ *struct{}) (*health_output, error) {
 		db_status := "unavailable"
 		if h.db != nil {

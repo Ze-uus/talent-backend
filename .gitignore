@@ -3,3 +3,8 @@
 dev-files/*
 .cursor
 .claude
+bin/
+cmd.exe
+coverage.out
+coverage.html
+PR.md

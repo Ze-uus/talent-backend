@@ -59,7 +59,7 @@ func main() {
 	cycle_update_ch := make(chan domain.CycleUpdateEvent, 64)
 	talent_update_ch := make(chan domain.TalentUpdateEvent, 64)
 
-	hub := ws.NewHub(anomaly_ch, conversion_ch, cycle_update_ch, talent_update_ch, db, log)
+	hub := ws.NewHub(anomaly_ch, conversion_ch, cycle_update_ch, talent_update_ch, db, cfg.Allowed_origins, log)
 	sse := ws.NewSSEHandler(db, 5*time.Second)
 
 	authSvc := authsvc.NewAuthService(db, "Scaloo")

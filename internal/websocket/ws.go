@@ -43,6 +43,8 @@ type Hub struct {
 	cycle_update_ch  <-chan domain.CycleUpdateEvent
 	talent_update_ch <-chan domain.TalentUpdateEvent
 	st               store.Store
+	allowed_origins  []string
+	upgrader         gws.Upgrader
 
 	// admin_clients: cycle_id → set of clients (see all events for that cycle)
 	admin_clients map[string]map[*client]bool
@@ -61,20 +63,41 @@ func NewHub(
 	cycle_update_ch <-chan domain.CycleUpdateEvent,
 	talent_update_ch <-chan domain.TalentUpdateEvent,
 	st store.Store,
+	allowed_origins []string,
 	log *slog.Logger,
 ) *Hub {
-	return &Hub{
+	h := &Hub{
 		anomaly_ch:       anomaly_ch,
 		conversion_ch:    conversion_ch,
 		cycle_update_ch:  cycle_update_ch,
 		talent_update_ch: talent_update_ch,
 		st:               st,
+		allowed_origins:  allowed_origins,
 		admin_clients:    make(map[string]map[*client]bool),
 		talent_clients:   make(map[string]map[*client]bool),
 		register:         make(chan *client, 32),
 		unregister:       make(chan *client, 32),
 		log:              log,
 	}
+	h.upgrader = gws.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin:     h.checkOrigin,
+	}
+	return h
+}
+
+func (h *Hub) checkOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true // same-origin / non-browser clients
+	}
+	for _, allowed := range h.allowed_origins {
+		if origin == allowed {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Hub) Run(ctx context.Context) {
@@ -226,12 +249,6 @@ func (h *Hub) broadcastToTalentAllCycles(talent_id string, msg WSMessage) {
 
 // ─── WS upgrade ──────────────────────────────────────────────────────────────
 
-var upgrader = gws.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin:     func(r *http.Request) bool { return true },
-}
-
 // ServeAdmin upgrades an admin connection for a cycle's real-time event stream.
 // Route: GET /ws/admin/{cycle_id}
 func (h *Hub) ServeAdmin(w http.ResponseWriter, r *http.Request) {
@@ -241,7 +258,7 @@ func (h *Hub) ServeAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cycle_id := r.PathValue("cycle_id")
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		h.log.Error("ws admin upgrade failed", "err", err)
 		return
@@ -266,7 +283,7 @@ func (h *Hub) ServeTalent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cycle_id := r.PathValue("cycle_id")
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		h.log.Error("ws talent upgrade failed", "err", err)
 		return

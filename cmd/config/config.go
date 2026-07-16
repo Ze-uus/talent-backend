@@ -27,7 +27,7 @@ func Load() Config {
 		Port:                 envOr("PORT", "8080"),
 		App_env:              envOr("APP_ENV", "development"),
 		App_version:          envOr("APP_VERSION", "0.1.0"),
-		Allowed_origins:      strings.Split(envOr("ALLOWED_ORIGINS", "http://localhost:3000"), ","),
+		Allowed_origins:      parseOrigins(envOr("ALLOWED_ORIGINS", "")),
 		Rate_limit_rps:       envInt("RATE_LIMIT_RPS", 100),
 		Delta_lt:             envFloat("DELTA_LT", 0.97),
 		Google_client_id:     envOr("GOOGLE_CLIENT_ID", ""),
@@ -38,6 +38,19 @@ func Load() Config {
 
 func (c Config) IsProduction() bool {
 	return c.App_env == "production"
+}
+
+// parseOrigins splits a comma-separated ALLOWED_ORIGINS value, trimming
+// whitespace and dropping empty entries.
+func parseOrigins(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if o := strings.TrimSpace(p); o != "" {
+			out = append(out, o)
+		}
+	}
+	return out
 }
 
 func envOr(key, fallback string) string {

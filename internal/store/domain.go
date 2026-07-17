@@ -105,18 +105,18 @@ const (
 type User struct {
 	ID                    string
 	Email                 string
-	Password_hash         string
+	Password_hash         string `json:"-"` // never serialize
 	Role                  User_role
 	Provider              Auth_provider
-	Google_id             string
+	Google_id             string `json:"-"` // never serialize
 	Full_name             string
 	Avatar_url            string
-	Totp_secret           string
+	Totp_secret           string `json:"-"` // never serialize — only returned explicitly from enroll
 	Totp_enabled          bool
 	Totp_verified         bool
 	Totp_last_verified_at time.Time
-	Invite_token          string
-	Invite_expires_at     time.Time
+	Invite_token          string    `json:"-"` // never serialize
+	Invite_expires_at     time.Time `json:"-"` // never serialize
 	Active                bool
 	Created_at            time.Time
 	Updated_at            time.Time
@@ -125,7 +125,7 @@ type User struct {
 type Session struct {
 	ID             string
 	User_id        string
-	Token          string
+	Token          string `json:"-"` // never serialize — session secret
 	IP_address     string
 	User_agent     string
 	Last_active_at time.Time
@@ -169,7 +169,7 @@ type BrandContact struct {
 	Email                  string
 	Whatsapp_number        string
 	Viewer_token           string // unique URL token for campaign access
-	Access_password_hash   string // hashed; system-generated on contact creation
+	Access_password_hash   string `json:"-"` // never serialize
 	Token_active           bool   // set false when contact is removed
 	Future_user_account_id string // null until brand contact portal is built
 	Created_at             time.Time
@@ -401,7 +401,7 @@ type CampaignViewer struct {
 type ViewerPassword struct {
 	ID            string
 	Viewer_id     string
-	Password_hash string
+	Password_hash string `json:"-"` // never serialize
 	Label         string
 	Active        bool
 	Created_at    time.Time

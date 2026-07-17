@@ -229,3 +229,15 @@ APP_ENV=production ./bin/scaloo         # with env vars set
 # Or Docker
 make docker-up-build
 ```
+
+### One-time session cleanup
+
+If an older build inserted sessions with empty `id` values (causing
+`sessions_pkey` on the second login), run once after deploying the fix:
+
+```sql
+DELETE FROM sessions WHERE id = '';
+```
+
+This is data repair only — no schema migration. Users keep their accounts;
+they just re-authenticate on affected devices.

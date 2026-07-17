@@ -12,12 +12,11 @@ import (
 )
 
 const createSession = `-- name: CreateSession :exec
-INSERT INTO sessions (id, user_id, token, ip_address, user_agent, expires_at)
-VALUES ($1,$2,$3,$4,$5,$6)
+INSERT INTO sessions (user_id, token, ip_address, user_agent, expires_at)
+VALUES ($1,$2,$3,$4,$5)
 `
 
 type CreateSessionParams struct {
-	ID        string
 	UserID    string
 	Token     string
 	IpAddress string
@@ -25,9 +24,9 @@ type CreateSessionParams struct {
 	ExpiresAt pgtype.Timestamptz
 }
 
+// id is DB-generated (gen_random_uuid); do not insert it or empty-string PKs recur.
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) error {
 	_, err := q.db.Exec(ctx, createSession,
-		arg.ID,
 		arg.UserID,
 		arg.Token,
 		arg.IpAddress,

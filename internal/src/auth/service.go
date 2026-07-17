@@ -222,14 +222,12 @@ func (a *AuthService) Login(ctx context.Context, email, password, totp_code, ip,
 	}
 
 	result := LoginResult{}
-	session_duration := talent_session_duration
 
 	switch u.Role {
 	case store.Role_superadmin, store.Role_admin, store.Role_campaign_manager:
 		if err := a.checkStaffTOTP(u, totp_code); err != nil {
 			return LoginResult{}, err
 		}
-		session_duration = admin_session_duration
 
 	case store.Role_talent:
 		totp_recheck := u.Totp_verified && time.Since(u.Totp_last_verified_at) > totp_recheck_interval
@@ -249,6 +247,22 @@ func (a *AuthService) Login(ctx context.Context, email, password, totp_code, ip,
 		// If totp not yet verified: allow login, frontend handles enrollment prompt
 	}
 
+	issued, err := a.issueSession(ctx, u, ip, ua)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	result.Token = issued.Token
+	return result, nil
+}
+
+// issueSession creates a new session for an already-authenticated user.
+// Used by Login and the Google OAuth callback.
+func (a *AuthService) issueSession(ctx context.Context, u store.User, ip, ua string) (LoginResult, error) {
+	session_duration := talent_session_duration
+	switch u.Role {
+	case store.Role_superadmin, store.Role_admin, store.Role_campaign_manager:
+		session_duration = admin_session_duration
+	}
 	token, err := generateToken()
 	if err != nil {
 		return LoginResult{}, err
@@ -263,32 +277,8 @@ func (a *AuthService) Login(ctx context.Context, email, password, totp_code, ip,
 	}); err != nil {
 		return LoginResult{}, err
 	}
-	result.Token = token
-	return result, nil
-}
-
-// issueSession creates a new session for an already-authenticated user.
-// Used by the Google OAuth callback to issue a token after code exchange.
-func (a *AuthService) issueSession(ctx context.Context, u store.User) (LoginResult, error) {
-	session_duration := talent_session_duration
-	switch u.Role {
-	case store.Role_superadmin, store.Role_admin, store.Role_campaign_manager:
-		session_duration = admin_session_duration
-	}
-	token, err := generateToken()
-	if err != nil {
-		return LoginResult{}, err
-	}
-	if err := a.store.CreateSession(ctx, store.Session{
-		User_id:        u.ID,
-		Token:          token,
-		Last_active_at: time.Now().UTC(),
-		Expires_at:     time.Now().UTC().Add(session_duration),
-	}); err != nil {
-		return LoginResult{}, err
-	}
 	return LoginResult{
-		Token:             token,
+		Token:              token,
 		Require_totp_setup: !u.Totp_verified,
 	}, nil
 }

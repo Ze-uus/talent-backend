@@ -1,6 +1,7 @@
 -- name: CreateSession :exec
-INSERT INTO sessions (id, user_id, token, ip_address, user_agent, expires_at)
-VALUES ($1,$2,$3,$4,$5,$6);
+-- id is DB-generated (gen_random_uuid); do not insert it or empty-string PKs recur.
+INSERT INTO sessions (user_id, token, ip_address, user_agent, expires_at)
+VALUES ($1,$2,$3,$4,$5);
 
 -- name: GetSession :one
 SELECT * FROM sessions

@@ -472,8 +472,8 @@ func (s *Store) ListUsers(ctx context.Context, f store.UserFilter) ([]store.User
 // ─── Sessions ─────────────────────────────────────────────────────────────────
 
 func (s *Store) CreateSession(ctx context.Context, sess store.Session) error {
+	// id is omitted — Postgres DEFAULT gen_random_uuid() assigns it.
 	return s.q.CreateSession(ctx, CreateSessionParams{
-		ID:        sess.ID,
 		UserID:    sess.User_id,
 		Token:     sess.Token,
 		IpAddress: sess.IP_address,

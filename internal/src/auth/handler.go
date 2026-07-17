@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -88,7 +89,8 @@ func (h *handler) registerTalentAuth(api huma.API) {
 		}
 		result, err := h.svc.Login(ctx, in.Body.Email, in.Body.Password, totpCode, in.X_forwarded_for, in.User_agent)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			status, msg := mapLoginError(err)
+			return &std_output{Status: status, Body: response.Fail(msg)}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]any{
 			"token":              result.Token,
@@ -128,11 +130,12 @@ func (h *handler) registerTalentAuth(api huma.API) {
 	}) (*std_output, error) {
 		u, err := h.svc.ExchangeGoogleCode(ctx, in.Code)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			status, msg := mapLoginError(err)
+			return &std_output{Status: status, Body: response.Fail(msg)}, nil
 		}
-		result, err := h.svc.issueSession(ctx, u)
+		result, err := h.svc.issueSession(ctx, u, "", "")
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: 500, Body: response.Fail("session_create_failed")}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]any{
 			"token":              result.Token,
@@ -334,6 +337,25 @@ func (h *handler) registerBrandAccess(api huma.API) {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+// mapLoginError maps known auth failures to HTTP status + stable client codes.
+// Unexpected errors (e.g. store failures) never leak raw SQL to the client.
+func mapLoginError(err error) (status int, message string) {
+	switch {
+	case errors.Is(err, err_invalid_credentials):
+		return http.StatusUnauthorized, err_invalid_credentials.Error()
+	case errors.Is(err, err_totp_required):
+		return http.StatusUnauthorized, err_totp_required.Error()
+	case errors.Is(err, err_invalid_totp):
+		return http.StatusUnauthorized, err_invalid_totp.Error()
+	case errors.Is(err, err_account_pending):
+		return http.StatusForbidden, err_account_pending.Error()
+	case errors.Is(err, err_account_suspended):
+		return http.StatusForbidden, err_account_suspended.Error()
+	default:
+		return http.StatusInternalServerError, "login_failed"
+	}
+}
 
 func extractBearer(authorization string) string {
 	if strings.HasPrefix(authorization, "Bearer ") {

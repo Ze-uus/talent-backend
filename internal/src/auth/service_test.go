@@ -585,6 +585,38 @@ func TestLogin_AdminAllowed_BeforeEnrollment(t *testing.T) {
 	}
 }
 
+func TestLogin_SameUser_IssuesDistinctTokens(t *testing.T) {
+	m := newMock()
+	m.addUser(store.User{
+		ID:            "a3",
+		Email:         "admin3@scaloo.com",
+		Password_hash: hashPassword(t, "pass"),
+		Role:          store.Role_admin,
+		Active:        true,
+		Totp_enabled:  false,
+		Totp_verified: false,
+	})
+	svc := newSvc(m)
+
+	first, err := svc.Login(context.Background(), "admin3@scaloo.com", "pass", "", "127.0.0.1", "ua-1")
+	if err != nil {
+		t.Fatalf("first login: %v", err)
+	}
+	second, err := svc.Login(context.Background(), "admin3@scaloo.com", "pass", "", "127.0.0.1", "ua-2")
+	if err != nil {
+		t.Fatalf("second login: %v", err)
+	}
+	if first.Token == "" || second.Token == "" {
+		t.Fatal("expected both logins to issue tokens")
+	}
+	if first.Token == second.Token {
+		t.Fatal("expected distinct session tokens for successive logins")
+	}
+	if len(m.sessions) != 2 {
+		t.Fatalf("expected 2 sessions for same user, got %d", len(m.sessions))
+	}
+}
+
 func TestLogin_TalentNoTOTP_ReturnsSetupFlag(t *testing.T) {
 	m := newMock()
 	m.addUser(store.User{

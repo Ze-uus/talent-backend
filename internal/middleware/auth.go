@@ -12,12 +12,35 @@ import (
 )
 
 // Authenticate validates the session token from Authorization: Bearer header.
+// Missing or invalid tokens are rejected with 401.
 func Authenticate(svc *authsvc.AuthService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token := extractBearer(r)
 			if token == "" {
 				response.WriteJSON(w, http.StatusUnauthorized, response.Fail("missing_token"))
+				return
+			}
+			user, err := svc.ValidateSession(r.Context(), token)
+			if err != nil {
+				response.WriteJSON(w, http.StatusUnauthorized, response.Fail(err.Error()))
+				return
+			}
+			ctx := ctxkeys.WithUser(r.Context(), user)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// AuthenticateOptional populates the user in context when a Bearer token is present.
+// Requests without a token continue unauthenticated so public routes still work.
+// Invalid tokens are rejected with 401.
+func AuthenticateOptional(svc *authsvc.AuthService) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			token := extractBearer(r)
+			if token == "" {
+				next.ServeHTTP(w, r)
 				return
 			}
 			user, err := svc.ValidateSession(r.Context(), token)

@@ -84,6 +84,9 @@ func main() {
 	r.Use(chimw.Recoverer)
 	r.Use(mw.CORS(cfg.Allowed_origins))
 	r.Use(mw.RateLimit(cfg.Rate_limit_rps))
+	// Resolve Bearer sessions for Huma handlers that call UserFromContext.
+	// Public routes (login/register/etc.) work without a token; invalid tokens still 401.
+	r.Use(mw.AuthenticateOptional(authSvc))
 
 	// ─── Huma API (single instance, single /docs) ────────────────────────────────
 
@@ -240,7 +243,9 @@ window.onload = function() {
 </html>`))
 	})
 
-	// ─── Public routes (no Bearer auth) ─────────────────────────────────────────
+	// ─── Routes ──────────────────────────────────────────────────────────────────
+	// AuthenticateOptional (above) injects the user when Authorization: Bearer is set.
+	// Handlers that call UserFromContext still return 401 if no session is present.
 
 	health.Mount(api, cfg.App_version, db)
 	authsvc.Mount(api, authSvc)
@@ -255,10 +260,6 @@ window.onload = function() {
 		r.Get("/brand/view/{viewer_token}/live", sse.ServeBrandContact)
 	})
 
-	// ─── Protected routes (Bearer auth) ─────────────────────────────────────────
-	// Huma handlers registered on `api` do their own inline role checks.
-	// mw.Authenticate here protects the WS upgrade endpoints at the chi level.
-
 	brandsvc.Mount(api, brand)
 	campaignsvc.Mount(api, campaign)
 	assignmentsvc.Mount(api, assignment)
@@ -267,6 +268,7 @@ window.onload = function() {
 	talentsvc.Mount(api, talent)
 	settingssvc.Mount(api, settings)
 
+	// WS upgrades require a valid Bearer session at the chi level.
 	r.Group(func(r chi.Router) {
 		r.Use(mw.Authenticate(authSvc))
 		r.Get("/ws/admin/{cycle_id}", hub.ServeAdmin)

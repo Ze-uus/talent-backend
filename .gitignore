@@ -4,7 +4,9 @@ dev-files/*
 .cursor
 .claude
 bin/
+tmp/
 cmd.exe
 coverage.out
 coverage.html
 PR.md
+/types

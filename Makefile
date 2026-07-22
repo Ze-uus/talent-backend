@@ -106,8 +106,9 @@ docker-up:
 	$(DC) up -d
 
 docker-up-db:
-	@echo "→ Starting DB container..."
+	@echo "→ Starting DB + Mailpit containers..."
 	$(DC) up -d --wait db
+	$(DC) up -d mailpit
 
 docker-up-build:
 	@echo "→ Building and starting containers..."

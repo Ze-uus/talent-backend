@@ -1,0 +1,6 @@
+{{define "payout_paid.html"}}{{template "shell" .}}{{end}}
+{{define "body"}}
+<p>Hi {{.Name}},</p>
+<p>Your payout of <strong>{{.Amount}}</strong> for cycle <code>{{.CycleID}}</code> has been marked as <strong>paid</strong>.</p>
+<p><a href="{{.LoginURL}}" style="color:#18181b;">View payouts</a></p>
+{{end}}

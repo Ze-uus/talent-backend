@@ -19,6 +19,7 @@ import (
 	"github.com/Ze-uus/talent-backend/cmd/config"
 	"github.com/Ze-uus/talent-backend/internal/domain"
 	"github.com/Ze-uus/talent-backend/internal/jobs"
+	"github.com/Ze-uus/talent-backend/internal/mail"
 	mw "github.com/Ze-uus/talent-backend/internal/middleware"
 	postgres "github.com/Ze-uus/talent-backend/internal/store/postgres"
 	adminsvc "github.com/Ze-uus/talent-backend/internal/src/admin"
@@ -62,16 +63,28 @@ func main() {
 	hub := ws.NewHub(anomaly_ch, conversion_ch, cycle_update_ch, talent_update_ch, db, cfg.Allowed_origins, log)
 	sse := ws.NewSSEHandler(db, 5*time.Second)
 
-	authSvc := authsvc.NewAuthService(db, "Scaloo")
+	mailer := mail.New(mail.Config{
+		Host:     cfg.SMTP_host,
+		Port:     cfg.SMTP_port,
+		User:     cfg.SMTP_user,
+		Password: cfg.SMTP_password,
+		From:     cfg.SMTP_from,
+		TLS:      cfg.SMTP_tls,
+		AppURL:   cfg.App_url,
+		Log:      log,
+	})
+	mailSvc := mail.NewService(mailer, cfg.App_url, log)
+
+	authSvc := authsvc.NewAuthService(db, "Scaloo", mailSvc)
 
 	// ─── Services (channels wired after hub creation) ───────────────────────────
 
-	payout := payoutsvc.New(db)
-	campaign := campaignsvc.New(db, payout, cycle_update_ch, log)
+	payout := payoutsvc.New(db, mailSvc)
+	campaign := campaignsvc.New(db, payout, cycle_update_ch, log, mailSvc)
 	brand := brandsvc.New(db)
 	talent := talentsvc.New(db)
-	assignment := assignmentsvc.New(db, talent_update_ch, log)
-	admin := adminsvc.New(db, talent_update_ch, log)
+	assignment := assignmentsvc.New(db, talent_update_ch, log, mailSvc)
+	admin := adminsvc.New(db, talent_update_ch, log, mailSvc)
 	settings := settingssvc.New(db, authSvc)
 	tracking := trackingsvc.New(db, conversion_ch, log)
 
@@ -286,6 +299,9 @@ window.onload = function() {
 	}
 	if _, err := c.AddJob("0 * * * *", jobs.NewFallbackCheckJob(db, log)); err != nil {
 		log.Error("failed to register FallbackCheckJob", "err", err)
+	}
+	if _, err := c.AddJob("0 * * * *", jobs.NewCycleRemindersJob(db, mailSvc, log)); err != nil {
+		log.Error("failed to register CycleRemindersJob", "err", err)
 	}
 	c.Start()
 	defer c.Stop()

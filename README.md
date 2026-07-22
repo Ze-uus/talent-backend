@@ -104,12 +104,29 @@ make all             # full cycle: lint → test → migrate → build → docke
 | `APP_KEY` | Yes | — | Application secret (min 32 chars) |
 | `PORT` | No | `8080` | HTTP listen port |
 | `APP_ENV` | No | `development` | `development` \| `production` |
+| `APP_URL` | No | `http://localhost:3000` | Frontend base URL for links in emails |
 | `ALLOWED_ORIGINS` | No | `http://localhost:3000` | CORS origins (comma-separated) |
 | `RATE_LIMIT_RPS` | No | `100` | Requests/sec per IP |
 | `DELTA_LT` | No | `0.97` | Long-term Bayesian decay rate |
+| `SMTP_HOST` | No | — | SMTP host; empty disables outbound mail |
+| `SMTP_PORT` | No | `1025` | SMTP port (Mailpit local default) |
+| `SMTP_USER` | No | — | SMTP username (optional) |
+| `SMTP_PASSWORD` | No | — | SMTP password (optional) |
+| `SMTP_FROM` | No | `Scaloo <noreply@scaloo.local>` | From header |
+| `SMTP_TLS` | No | `false` | Use STARTTLS |
 | `GOOGLE_CLIENT_ID` | OAuth | — | Google OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | OAuth | — | Google OAuth client secret |
 | `GOOGLE_REDIRECT_URL` | OAuth | — | OAuth callback URL |
+
+### Local email (Mailpit)
+
+`docker compose` starts **Mailpit** alongside Postgres:
+
+- SMTP: `localhost:1025` (matches `.env.example`)
+- UI: [http://localhost:8025](http://localhost:8025) — inspect lifecycle emails
+
+Leave `SMTP_HOST` empty to use a no-op mailer (CI / tests). Staff invites and talent lifecycle emails are sent when SMTP is configured.
+
 
 ---
 
@@ -132,7 +149,10 @@ scaloo/
 │   │   └── payout.go     ← cycle payout calculation
 │   ├── jobs/
 │   │   ├── daily_compute.go    ← 00:00 UTC cron
-│   │   └── nightly_learning.go ← 01:00 UTC cron
+│   │   ├── nightly_learning.go ← 01:00 UTC cron
+│   │   ├── fallback_check.go   ← hourly
+│   │   └── cycle_reminders.go  ← hourly mid/3d/24h + brand digest
+│   ├── mail/                   ← SMTP mailer + HTML templates
 │   ├── middleware/
 │   │   ├── auth.go       ← session + role enforcement
 │   │   ├── cors.go
@@ -157,8 +177,8 @@ scaloo/
 
 ### Admin
 ```
-POST /admin/talents/invite     → invite email sent
-POST /auth/admin/verify-invite → set password
+POST /auth/invite/*            → create invite + email sent (when SMTP configured)
+POST /auth/invite/verify       → set password
 POST /auth/totp/enroll         → get QR URI
 POST /auth/totp/verify         → activate 2FA
 POST /auth/login               → email + password + TOTP code → session token
@@ -166,8 +186,8 @@ POST /auth/login               → email + password + TOTP code → session toke
 
 ### Talent
 ```
-POST /auth/register            → create account (pending approval)
-[admin approves]
+POST /auth/register            → create account (pending approval) + confirmation email
+[admin approves]               → approval email
 POST /auth/login               → email + password [+ TOTP after grace period]
 POST /auth/totp/enroll         → prompted at onboarding
 POST /auth/totp/verify         → activate 2FA

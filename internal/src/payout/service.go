@@ -2,18 +2,23 @@ package payout
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/Ze-uus/talent-backend/internal/algo"
 	"github.com/Ze-uus/talent-backend/internal/jsonutil"
+	"github.com/Ze-uus/talent-backend/internal/mail"
 	"github.com/Ze-uus/talent-backend/internal/store"
 )
 
 type PayoutService struct {
-	st store.Store
+	st   store.Store
+	mail *mail.Service
 }
 
-func New(s store.Store) *PayoutService { return &PayoutService{st: s} }
+func New(s store.Store, mailSvc *mail.Service) *PayoutService {
+	return &PayoutService{st: s, mail: mailSvc}
+}
 
 // ComputeAndStoreCyclePayout runs the full Story 17 algorithm for a cycle.
 // All payout_records are created in "report_pending" state.
@@ -107,6 +112,39 @@ func (s *PayoutService) ApprovePayout(ctx context.Context, talent_id, cycle_id, 
 		Approved_by: &actor_id,
 		Approved_at: &now,
 	})
+}
+
+// MarkPayoutPaid moves an approved payout to paid and emails the talent.
+func (s *PayoutService) MarkPayoutPaid(ctx context.Context, talent_id, cycle_id, actor_id string) error {
+	record, err := s.st.GetPayoutRecord(ctx, talent_id, cycle_id)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	paid := store.Payout_paid
+	if err := s.st.UpdatePayoutRecord(ctx, record.ID, store.PayoutPatch{
+		Status:  &paid,
+		Paid_at: &now,
+	}); err != nil {
+		return err
+	}
+	_ = s.st.WriteAuditLog(ctx, store.AuditLog{
+		Actor_id:    actor_id,
+		Action_type: "payout_paid",
+		Entity_type: "payout_record",
+		Entity_id:   record.ID,
+	})
+	if s.mail != nil {
+		talent, err := s.st.GetTalentByID(ctx, talent_id)
+		if err == nil {
+			user, err := s.st.GetUserByID(ctx, talent.User_id)
+			if err == nil && user.Email != "" {
+				amount := fmt.Sprintf("%.2f", record.Final_payout)
+				s.mail.NotifyPayoutPaid(user.Email, user.Full_name, amount, cycle_id)
+			}
+		}
+	}
+	return nil
 }
 
 // FlagPayout marks a payout for manual review.

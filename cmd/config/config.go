@@ -7,17 +7,24 @@ import (
 )
 
 type Config struct {
-	Database_url          string
-	App_key               string
-	Port                  string
-	App_env               string
-	App_version           string
-	Allowed_origins       []string
-	Rate_limit_rps        int
-	Delta_lt              float64
-	Google_client_id      string
-	Google_client_secret  string
-	Google_redirect_url   string
+	Database_url         string
+	App_key              string
+	Port                 string
+	App_env              string
+	App_version          string
+	Allowed_origins      []string
+	Rate_limit_rps       int
+	Delta_lt             float64
+	Google_client_id     string
+	Google_client_secret string
+	Google_redirect_url  string
+	App_url              string
+	SMTP_host            string
+	SMTP_port            int
+	SMTP_user            string
+	SMTP_password        string
+	SMTP_from            string
+	SMTP_tls             bool
 }
 
 func Load() Config {
@@ -33,6 +40,13 @@ func Load() Config {
 		Google_client_id:     envOr("GOOGLE_CLIENT_ID", ""),
 		Google_client_secret: envOr("GOOGLE_CLIENT_SECRET", ""),
 		Google_redirect_url:  envOr("GOOGLE_REDIRECT_URL", "http://localhost:8080/v1/auth/google/callback"),
+		App_url:              envOr("APP_URL", "http://localhost:3000"),
+		SMTP_host:            envOr("SMTP_HOST", ""),
+		SMTP_port:            envInt("SMTP_PORT", 1025),
+		SMTP_user:            envOr("SMTP_USER", ""),
+		SMTP_password:        envOr("SMTP_PASSWORD", ""),
+		SMTP_from:            envOr("SMTP_FROM", "Scaloo <noreply@scaloo.local>"),
+		SMTP_tls:             envBool("SMTP_TLS", false),
 	}
 }
 
@@ -73,6 +87,15 @@ func envFloat(key string, fallback float64) float64 {
 	if v := os.Getenv(key); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			return f
+		}
+	}
+	return fallback
+}
+
+func envBool(key string, fallback bool) bool {
+	if v := os.Getenv(key); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
 		}
 	}
 	return fallback

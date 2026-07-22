@@ -1,0 +1,6 @@
+{{define "campaign_started.html"}}{{template "shell" .}}{{end}}
+{{define "body"}}
+<p>Hi {{.Name}},</p>
+<p>Campaign <strong>{{.CampaignName}}</strong> ({{.HumanID}}) has <strong>started</strong>.</p>
+<p><a href="{{.DashboardURL}}" style="color:#18181b;">Open dashboard</a></p>
+{{end}}

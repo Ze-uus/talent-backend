@@ -1,0 +1,7 @@
+{{define "brand_stats.html"}}{{template "shell" .}}{{end}}
+{{define "body"}}
+<p>Hi {{.Name}},</p>
+<p>Performance update for <strong>{{.CampaignName}}</strong> ({{.HumanID}}) — {{.PeriodLabel}}.</p>
+<p>Total conversions: <strong>{{printf "%.0f" .Conversions}}</strong></p>
+<p><a href="{{.DashboardURL}}" style="color:#18181b;">Open dashboard</a></p>
+{{end}}

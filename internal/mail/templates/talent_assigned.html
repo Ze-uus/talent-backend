@@ -1,0 +1,6 @@
+{{define "talent_assigned.html"}}{{template "shell" .}}{{end}}
+{{define "body"}}
+<p>Hi {{.Name}},</p>
+<p>You have been <strong>assigned</strong> to <strong>{{.CampaignName}}</strong>, cycle {{.CycleNumber}} (tier {{.Tier}}).</p>
+<p><a href="{{.DashboardURL}}" style="color:#18181b;">View assignment</a></p>
+{{end}}

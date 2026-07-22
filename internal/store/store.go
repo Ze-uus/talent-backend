@@ -68,8 +68,14 @@ type Store interface {
 
 	// --- Campaign manager assignments ---
 	GetCampaignsByManagerID(ctx context.Context, manager_id string) ([]Campaign, error)
+	ListManagersByCampaignID(ctx context.Context, campaign_id string) ([]User, error)
 	AssignManagerToCampaign(ctx context.Context, manager_id, campaign_id, assigned_by string) error
 	UnassignManagerFromCampaign(ctx context.Context, manager_id, campaign_id string) error
+
+	// --- Email dispatches (idempotent reminder/digest sends) ---
+	// TryRecordEmailDispatch inserts a dispatch row; returns true if this was the first send.
+	TryRecordEmailDispatch(ctx context.Context, entity_type, entity_id, template_key, recipient string) (bool, error)
+	EmailDispatchExists(ctx context.Context, entity_type, entity_id, template_key, recipient string) (bool, error)
 
 	// --- Cycles ---
 	CreateCycle(ctx context.Context, c Cycle) error

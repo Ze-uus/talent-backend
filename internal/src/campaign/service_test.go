@@ -127,6 +127,10 @@ func (m *mockStore) GetCampaignsByManagerID(_ context.Context, _ string) ([]stor
 }
 func (m *mockStore) AssignManagerToCampaign(_ context.Context, _, _, _ string) error { return nil }
 func (m *mockStore) UnassignManagerFromCampaign(_ context.Context, _, _ string) error { return nil }
+func (m *mockStore) ListManagersByCampaignID(_ context.Context, _ string) ([]store.User, error) { return nil, nil }
+func (m *mockStore) TryRecordEmailDispatch(_ context.Context, _, _, _, _ string) (bool, error) { return true, nil }
+func (m *mockStore) EmailDispatchExists(_ context.Context, _, _, _, _ string) (bool, error) { return false, nil }
+
 func (m *mockStore) CreateCycle(_ context.Context, _ store.Cycle) error                { return nil }
 func (m *mockStore) ListCyclesByCampaign(_ context.Context, _ string) ([]store.Cycle, error) {
 	return nil, nil
@@ -233,7 +237,7 @@ func TestCloseCycle_EmitsCycleUpdate(t *testing.T) {
 		Status:           store.Cycle_active,
 		Remaining_budget: 1200,
 	}}
-	svc := campaign.New(ms, nil, ch, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	svc := campaign.New(ms, nil, ch, slog.New(slog.NewTextHandler(os.Stderr, nil)), nil)
 
 	if err := svc.CloseCycle(context.Background(), "cycle-1"); err != nil {
 		t.Fatalf("CloseCycle error: %v", err)

@@ -1,0 +1,6 @@
+{{define "talent_registered.html"}}{{template "shell" .}}{{end}}
+{{define "body"}}
+<p>Hi {{.Name}},</p>
+<p>Thanks for registering with Scaloo. Your account is <strong>pending approval</strong>. We will email you once an admin reviews your application.</p>
+<p><a href="{{.LoginURL}}" style="color:#18181b;">Go to login</a></p>
+{{end}}

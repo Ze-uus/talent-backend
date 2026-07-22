@@ -356,6 +356,17 @@ func (m *mockStore) AssignManagerToCampaign(_ context.Context, _, _, _ string) e
 func (m *mockStore) UnassignManagerFromCampaign(_ context.Context, _, _ string) error {
 	return errors.New("not_implemented")
 }
+
+func (m *mockStore) ListManagersByCampaignID(_ context.Context, _ string) ([]store.User, error) {
+	return nil, nil
+}
+func (m *mockStore) TryRecordEmailDispatch(_ context.Context, _, _, _, _ string) (bool, error) {
+	return true, nil
+}
+func (m *mockStore) EmailDispatchExists(_ context.Context, _, _, _, _ string) (bool, error) {
+	return false, nil
+}
+
 func (m *mockStore) CreateCycle(_ context.Context, _ store.Cycle) error {
 	return errors.New("not_implemented")
 }
@@ -501,7 +512,7 @@ func hashPassword(t *testing.T, plain string) string {
 }
 
 func newSvc(m *mockStore) *auth.AuthService {
-	return auth.NewAuthService(m, "Scaloo")
+	return auth.NewAuthService(m, "Scaloo", nil)
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────

@@ -319,6 +319,51 @@ func (q *Queries) ListCampaigns(ctx context.Context, arg ListCampaignsParams) ([
 	return items, nil
 }
 
+const listManagersByCampaignID = `-- name: ListManagersByCampaignID :many
+SELECT u.id, u.email, u.password_hash, u.role, u.provider, u.google_id, u.full_name, u.avatar_url, u.totp_secret, u.totp_enabled, u.totp_verified, u.totp_last_verified_at, u.invite_token, u.invite_expires_at, u.active, u.created_at, u.updated_at FROM users u
+JOIN manager_campaign_assignments m ON m.manager_id = u.id
+WHERE m.campaign_id = $1
+ORDER BY u.full_name
+`
+
+func (q *Queries) ListManagersByCampaignID(ctx context.Context, campaignID string) ([]User, error) {
+	rows, err := q.db.Query(ctx, listManagersByCampaignID, campaignID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []User{}
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(
+			&i.ID,
+			&i.Email,
+			&i.PasswordHash,
+			&i.Role,
+			&i.Provider,
+			&i.GoogleID,
+			&i.FullName,
+			&i.AvatarUrl,
+			&i.TotpSecret,
+			&i.TotpEnabled,
+			&i.TotpVerified,
+			&i.TotpLastVerifiedAt,
+			&i.InviteToken,
+			&i.InviteExpiresAt,
+			&i.Active,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const unassignManagerFromCampaign = `-- name: UnassignManagerFromCampaign :exec
 DELETE FROM manager_campaign_assignments
 WHERE manager_id = $1 AND campaign_id = $2

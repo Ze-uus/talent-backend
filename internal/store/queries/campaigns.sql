@@ -43,3 +43,10 @@ VALUES ($1,$2,$3) ON CONFLICT DO NOTHING;
 -- name: UnassignManagerFromCampaign :exec
 DELETE FROM manager_campaign_assignments
 WHERE manager_id = $1 AND campaign_id = $2;
+
+-- name: ListManagersByCampaignID :many
+SELECT u.* FROM users u
+JOIN manager_campaign_assignments m ON m.manager_id = u.id
+WHERE m.campaign_id = $1
+ORDER BY u.full_name;
+

@@ -86,6 +86,27 @@ func (h *handler) register(api huma.API) {
 	})
 
 	huma.Register(api, huma.Operation{
+		OperationID: "payouts_mark_paid",
+		Method:      http.MethodPost,
+		Path:        "/admin/campaigns/{id}/cycles/{cid}/payouts/{tid}/pay",
+		Summary:     "Mark payout as paid",
+		Tags:        []string{"payouts"},
+	}, func(ctx context.Context, in *struct {
+		ID  string `path:"id"`
+		Cid string `path:"cid"`
+		Tid string `path:"tid"`
+	}) (*std_output, error) {
+		u, ok := ctxkeys.UserFromContext(ctx)
+		if !ok || !isAdminRole(u.Role) {
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
+		}
+		if err := h.svc.MarkPayoutPaid(ctx, in.Tid, in.Cid, u.ID); err != nil {
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+		}
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "payout_paid")}, nil
+	})
+
+	huma.Register(api, huma.Operation{
 		OperationID: "payouts_flag",
 		Method:      http.MethodPost,
 		Path:        "/admin/campaigns/{id}/cycles/{cid}/payouts/{tid}/flag",

@@ -1,0 +1,7 @@
+{{define "cycle_ended.html"}}{{template "shell" .}}{{end}}
+{{define "body"}}
+<p>Hi {{.Name}},</p>
+<p>Cycle {{.CycleNumber}} for <strong>{{.CampaignName}}</strong> has <strong>ended</strong>.</p>
+{{if .StatsSummary}}<p>{{.StatsSummary}}</p>{{end}}
+<p><a href="{{.DashboardURL}}" style="color:#18181b;">View results</a></p>
+{{end}}

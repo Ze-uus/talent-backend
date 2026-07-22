@@ -9,6 +9,7 @@ import (
 
 	"github.com/Ze-uus/talent-backend/internal/algo"
 	"github.com/Ze-uus/talent-backend/internal/domain"
+	"github.com/Ze-uus/talent-backend/internal/mail"
 	"github.com/Ze-uus/talent-backend/internal/store"
 	ws "github.com/Ze-uus/talent-backend/internal/websocket"
 )
@@ -17,10 +18,11 @@ type AssignmentService struct {
 	st               store.Store
 	talent_update_ch chan<- domain.TalentUpdateEvent
 	log              *slog.Logger
+	mail             *mail.Service
 }
 
-func New(s store.Store, talent_update_ch chan<- domain.TalentUpdateEvent, log *slog.Logger) *AssignmentService {
-	return &AssignmentService{st: s, talent_update_ch: talent_update_ch, log: log}
+func New(s store.Store, talent_update_ch chan<- domain.TalentUpdateEvent, log *slog.Logger, mailSvc *mail.Service) *AssignmentService {
+	return &AssignmentService{st: s, talent_update_ch: talent_update_ch, log: log, mail: mailSvc}
 }
 
 type SolverOutput struct {
@@ -191,6 +193,10 @@ func (s *AssignmentService) ConfirmAssignments(
 				Tracking_token: link.Token,
 			},
 		}, s.log, "talent_update_ch full, event dropped", "talent_id", ca.Talent_id, "cycle_id", cycle_id)
+
+		if s.mail != nil {
+			s.notifyTalentAssigned(ctx, ca.Talent_id, campaign_id, cycle_id, ca.Effective_tier)
+		}
 	}
 	if is_override {
 		_ = s.st.WriteAuditLog(ctx, store.AuditLog{
@@ -201,6 +207,26 @@ func (s *AssignmentService) ConfirmAssignments(
 		})
 	}
 	return nil
+}
+
+func (s *AssignmentService) notifyTalentAssigned(ctx context.Context, talent_id, campaign_id, cycle_id string, tier int) {
+	talent, err := s.st.GetTalentByID(ctx, talent_id)
+	if err != nil {
+		return
+	}
+	user, err := s.st.GetUserByID(ctx, talent.User_id)
+	if err != nil || user.Email == "" {
+		return
+	}
+	campaign, err := s.st.GetCampaignByID(ctx, campaign_id)
+	if err != nil {
+		return
+	}
+	cycle, err := s.st.GetCycleByID(ctx, cycle_id)
+	if err != nil {
+		return
+	}
+	s.mail.NotifyTalentAssigned(user.Email, user.Full_name, campaign.Name, cycle.Cycle_number, tier)
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

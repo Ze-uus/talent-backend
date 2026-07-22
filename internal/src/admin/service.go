@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/Ze-uus/talent-backend/internal/domain"
+	"github.com/Ze-uus/talent-backend/internal/mail"
 	"github.com/Ze-uus/talent-backend/internal/store"
 	ws "github.com/Ze-uus/talent-backend/internal/websocket"
 )
@@ -13,10 +14,11 @@ type AdminService struct {
 	st               store.Store
 	talent_update_ch chan<- domain.TalentUpdateEvent
 	log              *slog.Logger
+	mail             *mail.Service
 }
 
-func New(s store.Store, talent_update_ch chan<- domain.TalentUpdateEvent, log *slog.Logger) *AdminService {
-	return &AdminService{st: s, talent_update_ch: talent_update_ch, log: log}
+func New(s store.Store, talent_update_ch chan<- domain.TalentUpdateEvent, log *slog.Logger, mailSvc *mail.Service) *AdminService {
+	return &AdminService{st: s, talent_update_ch: talent_update_ch, log: log, mail: mailSvc}
 }
 
 func (s *AdminService) emitTalentUpdate(talent_id, update_type string, shard domain.TalentUpdateShard) {
@@ -26,6 +28,21 @@ func (s *AdminService) emitTalentUpdate(talent_id, update_type string, shard dom
 		Update_type: update_type,
 		Shard:       shard,
 	}, s.log, "talent_update_ch full, event dropped", "talent_id", talent_id, "update_type", update_type)
+}
+
+func (s *AdminService) notifyTalentUser(ctx context.Context, talent_id string, fn func(email, name string)) {
+	if s.mail == nil || fn == nil {
+		return
+	}
+	talent, err := s.st.GetTalentByID(ctx, talent_id)
+	if err != nil {
+		return
+	}
+	user, err := s.st.GetUserByID(ctx, talent.User_id)
+	if err != nil {
+		return
+	}
+	fn(user.Email, user.Full_name)
 }
 
 // ─── User management ──────────────────────────────────────────────────────────
@@ -43,8 +60,15 @@ func (s *AdminService) PatchUser(ctx context.Context, id string, patch store.Use
 }
 
 func (s *AdminService) DeactivateUser(ctx context.Context, id string) error {
+	user, _ := s.st.GetUserByID(ctx, id)
 	active := false
-	return s.st.UpdateUser(ctx, id, store.UserPatch{Active: &active})
+	if err := s.st.UpdateUser(ctx, id, store.UserPatch{Active: &active}); err != nil {
+		return err
+	}
+	if s.mail != nil && user.Email != "" {
+		s.mail.NotifyAccountDeactivated(user.Email, user.Full_name)
+	}
+	return nil
 }
 
 // ─── Talent management ────────────────────────────────────────────────────────
@@ -56,6 +80,9 @@ func (s *AdminService) ApproveTalent(ctx context.Context, id string, category st
 		return err
 	}
 	s.emitTalentUpdate(id, "approved", domain.TalentUpdateShard{Status: status, Category: cat})
+	if s.mail != nil {
+		s.notifyTalentUser(ctx, id, s.mail.NotifyTalentApproved)
+	}
 	return nil
 }
 
@@ -65,6 +92,9 @@ func (s *AdminService) RejectTalent(ctx context.Context, id string) error {
 		return err
 	}
 	s.emitTalentUpdate(id, "rejected", domain.TalentUpdateShard{Status: status})
+	if s.mail != nil {
+		s.notifyTalentUser(ctx, id, s.mail.NotifyTalentRejected)
+	}
 	return nil
 }
 
@@ -74,6 +104,9 @@ func (s *AdminService) SuspendTalent(ctx context.Context, id string) error {
 		return err
 	}
 	s.emitTalentUpdate(id, "suspended", domain.TalentUpdateShard{Status: status})
+	if s.mail != nil {
+		s.notifyTalentUser(ctx, id, s.mail.NotifyTalentSuspended)
+	}
 	return nil
 }
 
@@ -83,6 +116,9 @@ func (s *AdminService) ReinstateTalent(ctx context.Context, id string) error {
 		return err
 	}
 	s.emitTalentUpdate(id, "reinstated", domain.TalentUpdateShard{Status: status})
+	if s.mail != nil {
+		s.notifyTalentUser(ctx, id, s.mail.NotifyTalentReinstated)
+	}
 	return nil
 }
 

@@ -1,0 +1,7 @@
+{{define "cycle_started.html"}}{{template "shell" .}}{{end}}
+{{define "body"}}
+<p>Hi {{.Name}},</p>
+<p>Cycle <strong>{{.CycleNumber}}</strong> for <strong>{{.CampaignName}}</strong> has started.</p>
+<p>Runs {{.StartDate}} → {{.EndDate}}.</p>
+<p><a href="{{.DashboardURL}}" style="color:#18181b;">Open dashboard</a></p>
+{{end}}

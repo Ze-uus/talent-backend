@@ -15,6 +15,7 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 
+	"github.com/Ze-uus/talent-backend/internal/mail"
 	"github.com/Ze-uus/talent-backend/internal/store"
 )
 
@@ -45,10 +46,11 @@ type AuthService struct {
 	store       store.Store
 	issuer      string // "Scaloo"
 	google_conf *oauth2.Config
+	mail        *mail.Service
 }
 
-func NewAuthService(s store.Store, issuer string) *AuthService {
-	return &AuthService{store: s, issuer: issuer}
+func NewAuthService(s store.Store, issuer string, mailSvc *mail.Service) *AuthService {
+	return &AuthService{store: s, issuer: issuer, mail: mailSvc}
 }
 
 // WithGoogleOAuth adds Google OAuth support to the service.
@@ -127,6 +129,9 @@ func (a *AuthService) createInvite(ctx context.Context, email, full_name string,
 	if err := a.store.CreateUser(ctx, u); err != nil {
 		return "", err
 	}
+	if a.mail != nil {
+		a.mail.NotifyStaffInvite(email, full_name, string(role), token)
+	}
 	return token, nil
 }
 
@@ -158,14 +163,20 @@ func (a *AuthService) RegisterTalent(ctx context.Context, email, password, full_
 	if err != nil {
 		return err
 	}
-	return a.store.CreateUser(ctx, store.User{
+	if err := a.store.CreateUser(ctx, store.User{
 		Email:         email,
 		Password_hash: string(hash),
 		Full_name:     full_name,
 		Role:          store.Role_talent,
 		Provider:      store.Provider_local,
 		Active:        true,
-	})
+	}); err != nil {
+		return err
+	}
+	if a.mail != nil {
+		a.mail.NotifyTalentRegistered(email, full_name)
+	}
+	return nil
 }
 
 func (a *AuthService) RegisterTalentGoogle(ctx context.Context, google_id, email, full_name, avatar_url string) (store.User, error) {
@@ -183,6 +194,9 @@ func (a *AuthService) RegisterTalentGoogle(ctx context.Context, google_id, email
 		Active:     true,
 	}); err != nil {
 		return store.User{}, err
+	}
+	if a.mail != nil {
+		a.mail.NotifyTalentRegistered(email, full_name)
 	}
 	return a.store.GetUserByEmail(ctx, email)
 }

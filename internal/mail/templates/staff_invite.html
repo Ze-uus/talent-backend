@@ -1,0 +1,7 @@
+{{define "staff_invite.html"}}{{template "shell" .}}{{end}}
+{{define "body"}}
+<p>Hi {{.Name}},</p>
+<p>You have been invited to Scaloo as <strong>{{.Role}}</strong>.</p>
+<p><a href="{{.InviteURL}}" style="display:inline-block;background:#18181b;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;">Accept invite</a></p>
+<p style="font-size:13px;color:#71717a;">Or open: {{.InviteURL}}</p>
+{{end}}

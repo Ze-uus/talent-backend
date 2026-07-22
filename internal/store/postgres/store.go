@@ -929,6 +929,18 @@ func (s *Store) GetCampaignsByManagerID(ctx context.Context, manager_id string) 
 	return out, nil
 }
 
+func (s *Store) ListManagersByCampaignID(ctx context.Context, campaign_id string) ([]store.User, error) {
+	rows, err := s.q.ListManagersByCampaignID(ctx, campaign_id)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]store.User, len(rows))
+	for i, r := range rows {
+		out[i] = toStoreUser(r)
+	}
+	return out, nil
+}
+
 func (s *Store) AssignManagerToCampaign(ctx context.Context, manager_id, campaign_id, assigned_by string) error {
 	return s.q.AssignManagerToCampaign(ctx, AssignManagerToCampaignParams{
 		ManagerID:  manager_id,
@@ -941,6 +953,28 @@ func (s *Store) UnassignManagerFromCampaign(ctx context.Context, manager_id, cam
 	return s.q.UnassignManagerFromCampaign(ctx, UnassignManagerFromCampaignParams{
 		ManagerID:  manager_id,
 		CampaignID: campaign_id,
+	})
+}
+
+func (s *Store) TryRecordEmailDispatch(ctx context.Context, entity_type, entity_id, template_key, recipient string) (bool, error) {
+	n, err := s.q.InsertEmailDispatch(ctx, InsertEmailDispatchParams{
+		EntityType:  entity_type,
+		EntityID:    entity_id,
+		TemplateKey: template_key,
+		Recipient:   recipient,
+	})
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+func (s *Store) EmailDispatchExists(ctx context.Context, entity_type, entity_id, template_key, recipient string) (bool, error) {
+	return s.q.EmailDispatchExists(ctx, EmailDispatchExistsParams{
+		EntityType:  entity_type,
+		EntityID:    entity_id,
+		TemplateKey: template_key,
+		Recipient:   recipient,
 	})
 }
 

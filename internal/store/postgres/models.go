@@ -134,6 +134,15 @@ type CycleReport struct {
 	GeneratedAt                   pgtype.Timestamptz
 }
 
+type EmailDispatch struct {
+	ID          string
+	EntityType  string
+	EntityID    string
+	TemplateKey string
+	Recipient   string
+	SentAt      pgtype.Timestamptz
+}
+
 type ManagerCampaignAssignment struct {
 	ManagerID  string
 	CampaignID string

@@ -1,0 +1,7 @@
+{{define "cycle_mid.html"}}{{template "shell" .}}{{end}}
+{{define "body"}}
+<p>Hi {{.Name}},</p>
+<p>You are at the <strong>midpoint</strong> of cycle {{.CycleNumber}} for <strong>{{.CampaignName}}</strong>.</p>
+<p>Cycle ends {{.EndDate}}.</p>
+<p><a href="{{.DashboardURL}}" style="color:#18181b;">Check progress</a></p>
+{{end}}

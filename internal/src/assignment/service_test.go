@@ -108,6 +108,10 @@ func (m *mockStore) NextCampaignHumanID(_ context.Context, _ string) (string, er
 func (m *mockStore) GetCampaignsByManagerID(_ context.Context, _ string) ([]store.Campaign, error) { return nil, nil }
 func (m *mockStore) AssignManagerToCampaign(_ context.Context, _, _, _ string) error      { return nil }
 func (m *mockStore) UnassignManagerFromCampaign(_ context.Context, _, _ string) error     { return nil }
+func (m *mockStore) ListManagersByCampaignID(_ context.Context, _ string) ([]store.User, error) { return nil, nil }
+func (m *mockStore) TryRecordEmailDispatch(_ context.Context, _, _, _, _ string) (bool, error) { return true, nil }
+func (m *mockStore) EmailDispatchExists(_ context.Context, _, _, _, _ string) (bool, error) { return false, nil }
+
 func (m *mockStore) CreateCycle(_ context.Context, _ store.Cycle) error                   { return nil }
 func (m *mockStore) ListCyclesByCampaign(_ context.Context, _ string) ([]store.Cycle, error) { return nil, nil }
 func (m *mockStore) GetActiveCycles(_ context.Context) ([]store.Cycle, error)             { return nil, nil }
@@ -195,7 +199,7 @@ func TestRunSolver_MatchScoresComputed(t *testing.T) {
 	slots := makeSlots()
 	talents, baselines := makeTalentsAndBaselines()
 
-	svc := assignment.New(newMock(cycle, campaign, slots, talents, baselines), nil, nil)
+	svc := assignment.New(newMock(cycle, campaign, slots, talents, baselines), nil, nil, nil)
 	output, err := svc.RunSolver(context.Background(), "cycle-1")
 	if err != nil {
 		t.Fatalf("RunSolver error: %v", err)
@@ -217,7 +221,7 @@ func TestRunSolver_MatchAdjustmentLowersCost(t *testing.T) {
 	slots := makeSlots()
 	talents, baselines := makeTalentsAndBaselines()
 
-	svc := assignment.New(newMock(cycle, campaign, slots, talents, baselines), nil, nil)
+	svc := assignment.New(newMock(cycle, campaign, slots, talents, baselines), nil, nil, nil)
 	output, err := svc.RunSolver(context.Background(), "cycle-1")
 	if err != nil {
 		t.Fatalf("RunSolver error: %v", err)
@@ -237,7 +241,7 @@ func TestConfirmAssignments_EmitsTalentUpdate(t *testing.T) {
 	ms := newMock(cycle, campaign, slots, talents, baselines)
 
 	ch := make(chan domain.TalentUpdateEvent, 4)
-	svc := assignment.New(ms, ch, nil)
+	svc := assignment.New(ms, ch, nil, nil)
 
 	solver_out, err := svc.RunSolver(context.Background(), "cycle-1")
 	if err != nil {
@@ -275,7 +279,7 @@ func TestConfirmAssignments_MatchFieldsPersisted(t *testing.T) {
 	talents, baselines := makeTalentsAndBaselines()
 	ms := newMock(cycle, campaign, slots, talents, baselines)
 
-	svc := assignment.New(ms, nil, nil)
+	svc := assignment.New(ms, nil, nil, nil)
 	solver_out, err := svc.RunSolver(context.Background(), "cycle-1")
 	if err != nil {
 		t.Fatalf("RunSolver error: %v", err)

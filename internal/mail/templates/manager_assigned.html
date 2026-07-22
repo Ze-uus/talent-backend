@@ -1,0 +1,6 @@
+{{define "manager_assigned.html"}}{{template "shell" .}}{{end}}
+{{define "body"}}
+<p>Hi {{.Name}},</p>
+<p>You have been <strong>assigned</strong> as campaign manager for <strong>{{.CampaignName}}</strong> ({{.HumanID}}).</p>
+<p><a href="{{.DashboardURL}}" style="color:#18181b;">Open campaign</a></p>
+{{end}}

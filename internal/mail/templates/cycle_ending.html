@@ -1,0 +1,6 @@
+{{define "cycle_ending.html"}}{{template "shell" .}}{{end}}
+{{define "body"}}
+<p>Hi {{.Name}},</p>
+<p>Cycle {{.CycleNumber}} for <strong>{{.CampaignName}}</strong> ends in <strong>{{.StatsSummary}}</strong> ({{.EndDate}}).</p>
+<p><a href="{{.DashboardURL}}" style="color:#18181b;">Finish strong</a></p>
+{{end}}

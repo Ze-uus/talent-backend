@@ -175,6 +175,47 @@ func (h *handler) registerCampaigns(api huma.API) {
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "campaign_archived")}, nil
 	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "campaigns_assign_manager",
+		Method:      http.MethodPost,
+		Path:        "/admin/campaigns/{id}/managers",
+		Summary:     "Assign campaign manager",
+		Tags:        []string{"campaigns"},
+	}, func(ctx context.Context, in *struct {
+		ID   string `path:"id"`
+		Body struct {
+			Manager_id string `json:"manager_id"`
+		}
+	}) (*std_output, error) {
+		u, ok := ctxkeys.UserFromContext(ctx)
+		if !ok || !isAdminRole(u.Role) {
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
+		}
+		if err := h.svc.AssignManager(ctx, in.Body.Manager_id, in.ID, u.ID); err != nil {
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+		}
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "manager_assigned")}, nil
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "campaigns_unassign_manager",
+		Method:      http.MethodDelete,
+		Path:        "/admin/campaigns/{id}/managers/{mid}",
+		Summary:     "Unassign campaign manager",
+		Tags:        []string{"campaigns"},
+	}, func(ctx context.Context, in *struct {
+		ID  string `path:"id"`
+		Mid string `path:"mid"`
+	}) (*std_output, error) {
+		if !isAdminOrAbove(ctx) {
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
+		}
+		if err := h.svc.UnassignManager(ctx, in.Mid, in.ID); err != nil {
+			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+		}
+		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "manager_unassigned")}, nil
+	})
 }
 
 func (h *handler) registerCycles(api huma.API) {

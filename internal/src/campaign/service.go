@@ -3,11 +3,13 @@ package campaign
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/Ze-uus/talent-backend/internal/algo"
 	"github.com/Ze-uus/talent-backend/internal/domain"
+	"github.com/Ze-uus/talent-backend/internal/mail"
 	payoutsvc "github.com/Ze-uus/talent-backend/internal/src/payout"
 	"github.com/Ze-uus/talent-backend/internal/store"
 	ws "github.com/Ze-uus/talent-backend/internal/websocket"
@@ -18,10 +20,11 @@ type CampaignService struct {
 	payout          *payoutsvc.PayoutService
 	cycle_update_ch chan<- domain.CycleUpdateEvent
 	log             *slog.Logger
+	mail            *mail.Service
 }
 
-func New(s store.Store, p *payoutsvc.PayoutService, cycle_update_ch chan<- domain.CycleUpdateEvent, log *slog.Logger) *CampaignService {
-	return &CampaignService{st: s, payout: p, cycle_update_ch: cycle_update_ch, log: log}
+func New(s store.Store, p *payoutsvc.PayoutService, cycle_update_ch chan<- domain.CycleUpdateEvent, log *slog.Logger, mailSvc *mail.Service) *CampaignService {
+	return &CampaignService{st: s, payout: p, cycle_update_ch: cycle_update_ch, log: log, mail: mailSvc}
 }
 
 func (s *CampaignService) emitCycleUpdate(cycle store.Cycle, update_type string) {
@@ -60,22 +63,66 @@ func (s *CampaignService) Get(ctx context.Context, id string) (store.Campaign, e
 }
 
 func (s *CampaignService) Patch(ctx context.Context, id string, patch store.CampaignPatch) error {
-	return s.st.UpdateCampaign(ctx, id, patch)
+	prev, _ := s.st.GetCampaignByID(ctx, id)
+	if err := s.st.UpdateCampaign(ctx, id, patch); err != nil {
+		return err
+	}
+	if patch.Status != nil && *patch.Status == string(store.Campaign_active) && prev.Status != store.Campaign_active {
+		campaign, err := s.st.GetCampaignByID(ctx, id)
+		if err == nil {
+			s.notifyCampaignStarted(ctx, campaign)
+		}
+	}
+	return nil
 }
 
 func (s *CampaignService) Archive(ctx context.Context, id string) error {
 	status := string(store.Campaign_archived)
-	return s.st.UpdateCampaign(ctx, id, store.CampaignPatch{Status: &status})
+	if err := s.st.UpdateCampaign(ctx, id, store.CampaignPatch{Status: &status}); err != nil {
+		return err
+	}
+	campaign, err := s.st.GetCampaignByID(ctx, id)
+	if err != nil {
+		return nil
+	}
+	stats := s.campaignStatsSummary(ctx, campaign)
+	s.notifyCampaignStakeholders(ctx, campaign, func(to, name string) {
+		s.mail.NotifyCampaignEnded(to, name, campaign.Name, campaign.Human_id, stats)
+	})
+	return nil
 }
 
 // ─── Campaign manager assignments ─────────────────────────────────────────────
 
 func (s *CampaignService) AssignManager(ctx context.Context, manager_id, campaign_id, assigned_by string) error {
-	return s.st.AssignManagerToCampaign(ctx, manager_id, campaign_id, assigned_by)
+	if err := s.st.AssignManagerToCampaign(ctx, manager_id, campaign_id, assigned_by); err != nil {
+		return err
+	}
+	if s.mail == nil {
+		return nil
+	}
+	manager, err := s.st.GetUserByID(ctx, manager_id)
+	if err != nil {
+		return nil
+	}
+	campaign, err := s.st.GetCampaignByID(ctx, campaign_id)
+	if err != nil {
+		return nil
+	}
+	s.mail.NotifyManagerAssigned(manager.Email, manager.Full_name, campaign.Name, campaign.Human_id)
+	return nil
 }
 
 func (s *CampaignService) UnassignManager(ctx context.Context, manager_id, campaign_id string) error {
-	return s.st.UnassignManagerFromCampaign(ctx, manager_id, campaign_id)
+	manager, _ := s.st.GetUserByID(ctx, manager_id)
+	campaign, _ := s.st.GetCampaignByID(ctx, campaign_id)
+	if err := s.st.UnassignManagerFromCampaign(ctx, manager_id, campaign_id); err != nil {
+		return err
+	}
+	if s.mail != nil && manager.Email != "" {
+		s.mail.NotifyManagerUnassigned(manager.Email, manager.Full_name, campaign.Name, campaign.Human_id)
+	}
+	return nil
 }
 
 // ─── Cycle management ─────────────────────────────────────────────────────────
@@ -87,7 +134,6 @@ func (s *CampaignService) CreateCycle(ctx context.Context, c store.Cycle) (store
 		return store.Cycle{}, err
 	}
 
-	// Count active talents per tier as demand input
 	talents, err := s.st.ListAllTalents(ctx)
 	if err != nil {
 		return store.Cycle{}, err
@@ -125,7 +171,6 @@ func (s *CampaignService) CreateCycle(ctx context.Context, c store.Cycle) (store
 		return store.Cycle{}, err
 	}
 
-	// Persist budget slots from waterfall output
 	var slots []store.BudgetSlot
 	for _, ts := range wf_out.Slots {
 		for i := 0; i < ts.Slot_count; i++ {
@@ -180,6 +225,21 @@ func (s *CampaignService) ActivateCycle(ctx context.Context, id string) error {
 		return err
 	}
 	s.emitCycleUpdate(cycle, "activated")
+
+	campaign, err := s.st.GetCampaignByID(ctx, cycle.Campaign_id)
+	if err == nil {
+		if campaign.Status != store.Campaign_active {
+			active := string(store.Campaign_active)
+			_ = s.st.UpdateCampaign(ctx, campaign.ID, store.CampaignPatch{Status: &active})
+			campaign.Status = store.Campaign_active
+			s.notifyCampaignStarted(ctx, campaign)
+		}
+		start := cycle.Start_date.Format("2006-01-02")
+		end := cycle.End_date.Format("2006-01-02")
+		s.notifyCycleStakeholders(ctx, campaign, cycle, func(to, name string) {
+			s.mail.NotifyCycleStarted(to, name, campaign.Name, cycle.Cycle_number, start, end)
+		})
+	}
 	return nil
 }
 
@@ -206,6 +266,16 @@ func (s *CampaignService) CloseCycle(ctx context.Context, id string) error {
 		return err
 	}
 	s.emitCycleUpdate(cycle, "closed")
+
+	campaign, err := s.st.GetCampaignByID(ctx, cycle.Campaign_id)
+	if err == nil {
+		total, _ := s.st.GetTotalConversions(ctx, cycle.ID)
+		stats := fmt.Sprintf("Cycle conversions: %.0f", total)
+		s.notifyCycleStakeholders(ctx, campaign, cycle, func(to, name string) {
+			s.mail.NotifyCycleEnded(to, name, campaign.Name, cycle.Cycle_number, stats)
+		})
+		s.notifyBrandStats(ctx, campaign, cycle, total, fmt.Sprintf("cycle %d closed", cycle.Cycle_number))
+	}
 	return nil
 }
 
@@ -230,6 +300,81 @@ func (s *CampaignService) FinalisePayouts(ctx context.Context, cycle_id string) 
 	}
 	s.emitCycleUpdate(updated, "payouts_finalised")
 	return nil
+}
+
+// ─── Mail helpers ─────────────────────────────────────────────────────────────
+
+func (s *CampaignService) notifyCampaignStarted(ctx context.Context, campaign store.Campaign) {
+	s.notifyCampaignStakeholders(ctx, campaign, func(to, name string) {
+		s.mail.NotifyCampaignStarted(to, name, campaign.Name, campaign.Human_id)
+	})
+}
+
+func (s *CampaignService) notifyCampaignStakeholders(ctx context.Context, campaign store.Campaign, fn func(to, name string)) {
+	if s.mail == nil {
+		return
+	}
+	contacts, _ := s.st.ListBrandContacts(ctx, campaign.Brand_id)
+	for _, c := range contacts {
+		if c.Email != "" && c.Token_active {
+			fn(c.Email, c.First_name+" "+c.Last_name)
+		}
+	}
+	managers, _ := s.st.ListManagersByCampaignID(ctx, campaign.ID)
+	for _, m := range managers {
+		if m.Email != "" {
+			fn(m.Email, m.Full_name)
+		}
+	}
+}
+
+func (s *CampaignService) notifyCycleStakeholders(ctx context.Context, campaign store.Campaign, cycle store.Cycle, fn func(to, name string)) {
+	if s.mail == nil {
+		return
+	}
+	s.notifyCampaignStakeholders(ctx, campaign, fn)
+	assignments, _ := s.st.ListAssignedTalents(ctx, cycle.ID)
+	for _, a := range assignments {
+		talent, err := s.st.GetTalentByID(ctx, a.Talent_id)
+		if err != nil {
+			continue
+		}
+		user, err := s.st.GetUserByID(ctx, talent.User_id)
+		if err != nil || user.Email == "" {
+			continue
+		}
+		fn(user.Email, user.Full_name)
+	}
+}
+
+func (s *CampaignService) notifyBrandStats(ctx context.Context, campaign store.Campaign, cycle store.Cycle, conversions float64, period string) {
+	if s.mail == nil {
+		return
+	}
+	brand, err := s.st.GetBrandByID(ctx, campaign.Brand_id)
+	if err != nil {
+		return
+	}
+	contacts, _ := s.st.ListBrandContacts(ctx, campaign.Brand_id)
+	for _, c := range contacts {
+		if c.Email != "" && c.Token_active {
+			s.mail.NotifyBrandStats(c.Email, c.First_name+" "+c.Last_name, brand.Name, campaign.Name, campaign.Human_id, conversions, period)
+		}
+	}
+	_ = cycle
+}
+
+func (s *CampaignService) campaignStatsSummary(ctx context.Context, campaign store.Campaign) string {
+	cycles, err := s.st.ListCyclesByCampaign(ctx, campaign.ID)
+	if err != nil {
+		return ""
+	}
+	var total float64
+	for _, c := range cycles {
+		n, _ := s.st.GetTotalConversions(ctx, c.ID)
+		total += n
+	}
+	return fmt.Sprintf("Total conversions across cycles: %.0f", total)
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

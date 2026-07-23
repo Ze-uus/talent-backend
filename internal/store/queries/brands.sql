@@ -1,6 +1,6 @@
 -- name: CreateBrand :exec
-INSERT INTO brands (id, name, shortcode, industry, description, website, status)
-VALUES ($1,$2,$3,$4,$5,$6,$7);
+INSERT INTO brands (id, name, shortcode, industry, description, website, status, logo_url)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8);
 
 -- name: GetBrandByID :one
 SELECT * FROM brands WHERE id = $1;

@@ -10,3 +10,4 @@ coverage.out
 coverage.html
 PR.md
 /types
+.air.toml

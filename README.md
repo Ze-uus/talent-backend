@@ -114,6 +114,9 @@ make all             # full cycle: lint → test → migrate → build → docke
 | `SMTP_PASSWORD` | No | — | SMTP password (optional) |
 | `SMTP_FROM` | No | `Scaloo <noreply@scaloo.local>` | From header |
 | `SMTP_TLS` | No | `false` | Use STARTTLS |
+| `IMAGEKIT_PRIVATE_KEY` | Uploads | — | ImageKit private key; empty disables uploads |
+| `IMAGEKIT_PUBLIC_KEY` | No | — | ImageKit public key |
+| `IMAGEKIT_URL_ENDPOINT` | No | — | e.g. `https://ik.imagekit.io/your_id` |
 | `GOOGLE_CLIENT_ID` | OAuth | — | Google OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | OAuth | — | Google OAuth client secret |
 | `GOOGLE_REDIRECT_URL` | OAuth | — | OAuth callback URL |
@@ -126,6 +129,19 @@ make all             # full cycle: lint → test → migrate → build → docke
 - UI: [http://localhost:8025](http://localhost:8025) — inspect lifecycle emails
 
 Leave `SMTP_HOST` empty to use a no-op mailer (CI / tests). Staff invites and talent lifecycle emails are sent when SMTP is configured.
+
+### Image uploads (ImageKit)
+
+Server-side multipart uploads go to ImageKit under `/scaloo/brands/{brand_id}` and `/scaloo/avatars/{user_id}`. The API stores and returns the CDN URL (`logo_url` / `avatar_url`); it does not proxy image bytes.
+
+| Endpoint | Body |
+|----------|------|
+| `POST /admin/brands` | JSON **or** `multipart/form-data` with fields `name`, `industry`, `description`, `website` and optional file `logo` |
+| `PATCH /admin/brands/{id}` | JSON **or** multipart (same fields optional + optional `logo`) |
+| `POST /admin/brands/{id}/logo` | multipart file field `logo` |
+| `POST /settings/avatar` | multipart file field `avatar` (or `file`) |
+
+Allowed types: JPEG, PNG, WebP (max 5MB). If logo upload fails after brand create, the brand row is kept — retry via `POST .../logo`.
 
 
 ---

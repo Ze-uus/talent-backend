@@ -3,20 +3,27 @@ package settings
 import (
 	"context"
 	"errors"
+	"io"
 
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/Ze-uus/talent-backend/internal/media"
 	authsvc "github.com/Ze-uus/talent-backend/internal/src/auth"
 	"github.com/Ze-uus/talent-backend/internal/store"
 )
 
 type SettingsService struct {
-	st   store.Store
-	auth *authsvc.AuthService
+	st    store.Store
+	auth  *authsvc.AuthService
+	media media.Uploader
 }
 
-func New(s store.Store, a *authsvc.AuthService) *SettingsService {
-	return &SettingsService{st: s, auth: a}
+func New(s store.Store, a *authsvc.AuthService, up media.Uploader) *SettingsService {
+	if up == nil {
+		up = media.DisabledUploader{}
+	}
+	return &SettingsService{st: s, auth: a, media: up}
 }
 
 func (s *SettingsService) GetProfile(ctx context.Context, user_id string) (store.User, error) {
@@ -25,6 +32,30 @@ func (s *SettingsService) GetProfile(ctx context.Context, user_id string) (store
 
 func (s *SettingsService) PatchProfile(ctx context.Context, user_id string, patch store.UserPatch) error {
 	return s.st.UpdateUser(ctx, user_id, patch)
+}
+
+func (s *SettingsService) UploadAvatar(ctx context.Context, userID string, body io.Reader, contentType string) (store.User, error) {
+	if err := media.ValidateContentType(contentType); err != nil {
+		return store.User{}, err
+	}
+	fileName, err := media.NewFileName(uuid.NewString(), contentType)
+	if err != nil {
+		return store.User{}, err
+	}
+	res, err := s.media.Upload(ctx, media.UploadInput{
+		Folder:      media.FolderAvatar(userID),
+		FileName:    fileName,
+		ContentType: contentType,
+		Body:        body,
+	})
+	if err != nil {
+		return store.User{}, err
+	}
+	url := res.URL
+	if err := s.st.UpdateUser(ctx, userID, store.UserPatch{Avatar_url: &url}); err != nil {
+		return store.User{}, err
+	}
+	return s.st.GetUserByID(ctx, userID)
 }
 
 func (s *SettingsService) ChangePassword(ctx context.Context, user_id, old_pw, new_pw string) error {

@@ -145,6 +145,7 @@ type Brand struct {
 	Industry    string
 	Description string
 	Website     string
+	Logo_url    string
 	Status      string // "active" | "suspended"
 	Created_at  time.Time
 	Updated_at  time.Time

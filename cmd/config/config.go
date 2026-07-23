@@ -25,28 +25,34 @@ type Config struct {
 	SMTP_password        string
 	SMTP_from            string
 	SMTP_tls             bool
+	Imagekit_private_key string
+	Imagekit_public_key  string
+	Imagekit_url_endpoint string
 }
 
 func Load() Config {
 	return Config{
-		Database_url:         envOr("DATABASE_URL", ""),
-		App_key:              envOr("APP_KEY", ""),
-		Port:                 envOr("PORT", "8080"),
-		App_env:              envOr("APP_ENV", "development"),
-		App_version:          envOr("APP_VERSION", "0.1.0"),
-		Allowed_origins:      parseOrigins(envOr("ALLOWED_ORIGINS", "")),
-		Rate_limit_rps:       envInt("RATE_LIMIT_RPS", 100),
-		Delta_lt:             envFloat("DELTA_LT", 0.97),
-		Google_client_id:     envOr("GOOGLE_CLIENT_ID", ""),
-		Google_client_secret: envOr("GOOGLE_CLIENT_SECRET", ""),
-		Google_redirect_url:  envOr("GOOGLE_REDIRECT_URL", "http://localhost:8080/v1/auth/google/callback"),
-		App_url:              envOr("APP_URL", "http://localhost:3000"),
-		SMTP_host:            envOr("SMTP_HOST", ""),
-		SMTP_port:            envInt("SMTP_PORT", 1025),
-		SMTP_user:            envOr("SMTP_USER", ""),
-		SMTP_password:        envOr("SMTP_PASSWORD", ""),
-		SMTP_from:            envOr("SMTP_FROM", "Scaloo <noreply@scaloo.local>"),
-		SMTP_tls:             envBool("SMTP_TLS", false),
+		Database_url:          envOr("DATABASE_URL", ""),
+		App_key:               envOr("APP_KEY", ""),
+		Port:                  envOr("PORT", "8080"),
+		App_env:               envOr("APP_ENV", "development"),
+		App_version:           envOr("APP_VERSION", "0.1.0"),
+		Allowed_origins:       parseOrigins(envOr("ALLOWED_ORIGINS", "")),
+		Rate_limit_rps:        envInt("RATE_LIMIT_RPS", 100),
+		Delta_lt:              envFloat("DELTA_LT", 0.97),
+		Google_client_id:      envOr("GOOGLE_CLIENT_ID", ""),
+		Google_client_secret:  envOr("GOOGLE_CLIENT_SECRET", ""),
+		Google_redirect_url:   envOr("GOOGLE_REDIRECT_URL", "http://localhost:8080/v1/auth/google/callback"),
+		App_url:               envOr("APP_URL", "http://localhost:3000"),
+		SMTP_host:             envOr("SMTP_HOST", ""),
+		SMTP_port:             envInt("SMTP_PORT", 1025),
+		SMTP_user:             envOr("SMTP_USER", ""),
+		SMTP_password:         envOr("SMTP_PASSWORD", ""),
+		SMTP_from:             envOr("SMTP_FROM", "Scaloo <noreply@scaloo.local>"),
+		SMTP_tls:              envBool("SMTP_TLS", false),
+		Imagekit_private_key:  envOr("IMAGEKIT_PRIVATE_KEY", ""),
+		Imagekit_public_key:   envOr("IMAGEKIT_PUBLIC_KEY", ""),
+		Imagekit_url_endpoint: envOr("IMAGEKIT_URL_ENDPOINT", ""),
 	}
 }
 

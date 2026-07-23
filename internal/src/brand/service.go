@@ -5,27 +5,48 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"fmt"
+	"io"
 	"strings"
 
-	authpkg "github.com/Ze-uus/talent-backend/internal/src/auth"
+	"github.com/google/uuid"
+
 	"github.com/Ze-uus/talent-backend/internal/jsonutil"
+	"github.com/Ze-uus/talent-backend/internal/media"
+	authpkg "github.com/Ze-uus/talent-backend/internal/src/auth"
 	"github.com/Ze-uus/talent-backend/internal/store"
 )
 
 const max_contacts_per_brand = 3
 
+var ErrLogoUploadFailed = errors.New("logo_upload_failed")
+
 type BrandService struct {
-	st store.Store
+	st    store.Store
+	media media.Uploader
 }
 
-func New(s store.Store) *BrandService { return &BrandService{st: s} }
+func New(s store.Store, up media.Uploader) *BrandService {
+	if up == nil {
+		up = media.DisabledUploader{}
+	}
+	return &BrandService{st: s, media: up}
+}
 
-func (s *BrandService) Create(ctx context.Context, name, industry, description, website string) (store.Brand, error) {
+// LogoFile is an optional image upload for brand create/patch.
+type LogoFile struct {
+	Body        io.Reader
+	ContentType string
+}
+
+func (s *BrandService) Create(ctx context.Context, name, industry, description, website string, logo *LogoFile) (store.Brand, error) {
 	shortcode, err := s.generateShortcode(ctx, name)
 	if err != nil {
 		return store.Brand{}, err
 	}
+	id := uuid.NewString()
 	b := store.Brand{
+		ID:          id,
 		Name:        name,
 		Shortcode:   shortcode,
 		Industry:    industry,
@@ -36,7 +57,54 @@ func (s *BrandService) Create(ctx context.Context, name, industry, description, 
 	if err := s.st.CreateBrand(ctx, b); err != nil {
 		return store.Brand{}, err
 	}
-	return s.st.GetBrandByShortcode(ctx, shortcode)
+	created, err := s.st.GetBrandByShortcode(ctx, shortcode)
+	if err != nil {
+		return store.Brand{}, err
+	}
+	if logo != nil && logo.Body != nil {
+		if err := s.UpdateLogo(ctx, created.ID, logo.Body, logo.ContentType); err != nil {
+			return created, fmt.Errorf("%w: %v", ErrLogoUploadFailed, err)
+		}
+		return s.st.GetBrandByID(ctx, created.ID)
+	}
+	return created, nil
+}
+
+func (s *BrandService) Patch(ctx context.Context, id string, patch store.BrandPatch, logo *LogoFile) (store.Brand, error) {
+	if err := s.st.UpdateBrand(ctx, id, patch); err != nil {
+		return store.Brand{}, err
+	}
+	if logo != nil && logo.Body != nil {
+		if err := s.UpdateLogo(ctx, id, logo.Body, logo.ContentType); err != nil {
+			b, _ := s.st.GetBrandByID(ctx, id)
+			return b, fmt.Errorf("%w: %v", ErrLogoUploadFailed, err)
+		}
+	}
+	return s.st.GetBrandByID(ctx, id)
+}
+
+func (s *BrandService) UpdateLogo(ctx context.Context, brandID string, body io.Reader, contentType string) error {
+	if _, err := s.st.GetBrandByID(ctx, brandID); err != nil {
+		return err
+	}
+	if err := media.ValidateContentType(contentType); err != nil {
+		return err
+	}
+	fileName, err := media.NewFileName(uuid.NewString(), contentType)
+	if err != nil {
+		return err
+	}
+	res, err := s.media.Upload(ctx, media.UploadInput{
+		Folder:      media.FolderBrand(brandID),
+		FileName:    fileName,
+		ContentType: contentType,
+		Body:        body,
+	})
+	if err != nil {
+		return err
+	}
+	url := res.URL
+	return s.st.UpdateBrand(ctx, brandID, store.BrandPatch{Logo_url: &url})
 }
 
 func (s *BrandService) AddContact(ctx context.Context, brand_id, first_name, last_name, role, email, whatsapp string) (store.BrandContact, string, error) {
@@ -180,4 +248,3 @@ func generateViewerToken() (string, error) {
 	}
 	return base64.URLEncoding.EncodeToString(b)[:24], nil
 }
-

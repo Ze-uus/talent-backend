@@ -20,6 +20,7 @@ import (
 	"github.com/Ze-uus/talent-backend/internal/domain"
 	"github.com/Ze-uus/talent-backend/internal/jobs"
 	"github.com/Ze-uus/talent-backend/internal/mail"
+	"github.com/Ze-uus/talent-backend/internal/media"
 	mw "github.com/Ze-uus/talent-backend/internal/middleware"
 	postgres "github.com/Ze-uus/talent-backend/internal/store/postgres"
 	adminsvc "github.com/Ze-uus/talent-backend/internal/src/admin"
@@ -75,17 +76,24 @@ func main() {
 	})
 	mailSvc := mail.NewService(mailer, cfg.App_url, log)
 
+	uploader := media.New(media.Config{
+		PrivateKey:  cfg.Imagekit_private_key,
+		PublicKey:   cfg.Imagekit_public_key,
+		URLEndpoint: cfg.Imagekit_url_endpoint,
+		Log:         log,
+	})
+
 	authSvc := authsvc.NewAuthService(db, "Scaloo", mailSvc)
 
 	// ─── Services (channels wired after hub creation) ───────────────────────────
 
 	payout := payoutsvc.New(db, mailSvc)
 	campaign := campaignsvc.New(db, payout, cycle_update_ch, log, mailSvc)
-	brand := brandsvc.New(db)
+	brand := brandsvc.New(db, uploader)
 	talent := talentsvc.New(db)
 	assignment := assignmentsvc.New(db, talent_update_ch, log, mailSvc)
 	admin := adminsvc.New(db, talent_update_ch, log, mailSvc)
-	settings := settingssvc.New(db, authSvc)
+	settings := settingssvc.New(db, authSvc, uploader)
 	tracking := trackingsvc.New(db, conversion_ch, log)
 
 	// ─── Router + global middleware ──────────────────────────────────────────────
@@ -273,13 +281,13 @@ window.onload = function() {
 		r.Get("/brand/view/{viewer_token}/live", sse.ServeBrandContact)
 	})
 
-	brandsvc.Mount(api, brand)
+	brandsvc.Mount(api, r, brand)
 	campaignsvc.Mount(api, campaign)
 	assignmentsvc.Mount(api, assignment)
 	payoutsvc.Mount(api, payout)
 	adminsvc.Mount(api, admin)
 	talentsvc.Mount(api, talent)
-	settingssvc.Mount(api, settings)
+	settingssvc.Mount(api, r, settings)
 
 	// WS upgrades require a valid Bearer session at the chi level.
 	r.Group(func(r chi.Router) {

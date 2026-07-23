@@ -100,6 +100,7 @@ func toStoreBrand(b Brand) store.Brand {
 		Industry:    b.Industry,
 		Description: b.Description,
 		Website:     b.Website,
+		Logo_url:    b.LogoUrl,
 		Status:      b.Status,
 		Created_at:  pts(b.CreatedAt),
 		Updated_at:  pts(b.UpdatedAt),
@@ -528,6 +529,7 @@ func (s *Store) CreateBrand(ctx context.Context, b store.Brand) error {
 		Description: b.Description,
 		Website:     b.Website,
 		Status:      b.Status,
+		LogoUrl:     b.Logo_url,
 	})
 }
 
@@ -581,6 +583,10 @@ func (s *Store) UpdateBrand(ctx context.Context, id string, p store.BrandPatch) 
 	if p.Website != nil {
 		sets = append(sets, "website = @website")
 		args["website"] = *p.Website
+	}
+	if p.Logo_url != nil {
+		sets = append(sets, "logo_url = @logo_url")
+		args["logo_url"] = *p.Logo_url
 	}
 	if p.Status != nil {
 		sets = append(sets, "status = @status")

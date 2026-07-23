@@ -28,29 +28,8 @@ func (h *handler) register(api huma.API) {
 }
 
 func (h *handler) registerAdmin(api huma.API) {
-	huma.Register(api, huma.Operation{
-		OperationID: "brands_create",
-		Method:      http.MethodPost,
-		Path:        "/admin/brands",
-		Summary:     "Create brand",
-		Tags:        []string{"brands"},
-	}, func(ctx context.Context, in *struct {
-		Body struct {
-			Name        string `json:"name"`
-			Industry    string `json:"industry"`
-			Description string `json:"description"`
-			Website     string `json:"website"`
-		}
-	}) (*std_output, error) {
-		if !isAdminOrAbove(ctx) {
-			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
-		}
-		b, err := h.svc.Create(ctx, in.Body.Name, in.Body.Industry, in.Body.Description, in.Body.Website)
-		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
-		}
-		return &std_output{Status: http.StatusOK, Body: response.Ok(b, "brand_created")}, nil
-	})
+	// Create + patch (+ optional logo) and dedicated logo upload are Chi routes
+	// — see registerHTTP — so JSON and multipart/form-data both work.
 
 	huma.Register(api, huma.Operation{
 		OperationID: "brands_list",
@@ -90,36 +69,6 @@ func (h *handler) registerAdmin(api huma.API) {
 			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(b, "ok")}, nil
-	})
-
-	huma.Register(api, huma.Operation{
-		OperationID: "brands_patch",
-		Method:      http.MethodPatch,
-		Path:        "/admin/brands/{id}",
-		Summary:     "Update brand",
-		Tags:        []string{"brands"},
-	}, func(ctx context.Context, in *struct {
-		ID   string `path:"id"`
-		Body struct {
-			Name        *string `json:"name,omitempty"`
-			Industry    *string `json:"industry,omitempty"`
-			Description *string `json:"description,omitempty"`
-			Website     *string `json:"website,omitempty"`
-		}
-	}) (*std_output, error) {
-		if !isAdminOrAbove(ctx) {
-			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
-		}
-		patch := store.BrandPatch{
-			Name:        in.Body.Name,
-			Industry:    in.Body.Industry,
-			Description: in.Body.Description,
-			Website:     in.Body.Website,
-		}
-		if err := h.svc.st.UpdateBrand(ctx, in.ID, patch); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
-		}
-		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "brand_updated")}, nil
 	})
 
 	huma.Register(api, huma.Operation{

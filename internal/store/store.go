@@ -166,6 +166,7 @@ type BrandPatch struct {
 	Industry    *string
 	Description *string
 	Website     *string
+	Logo_url    *string
 	Status      *string
 }
 

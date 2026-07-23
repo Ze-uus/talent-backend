@@ -29,6 +29,7 @@ type Brand struct {
 	Status      string
 	CreatedAt   pgtype.Timestamptz
 	UpdatedAt   pgtype.Timestamptz
+	LogoUrl     string
 }
 
 type BrandContact struct {

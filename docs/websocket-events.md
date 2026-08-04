@@ -6,6 +6,7 @@ Real-time updates for admin and talent dashboards. Campaign viewers use SSE inst
 
 | Endpoint | Auth | Audience |
 |----------|------|----------|
+| `GET /ws/admin/live` | `Authorization: Bearer <session_token>` | Admin / superadmin (global ops + audit) |
 | `GET /ws/admin/{cycle_id}` | `Authorization: Bearer <session_token>` | Admin / campaign manager |
 | `GET /ws/talent/{cycle_id}` | `Authorization: Bearer <session_token>` | Talent (own data only) |
 
@@ -57,6 +58,9 @@ ws.onmessage = (raw) => {
     case "anomaly":
       store.flagAnomaly(msg.cycle_id, msg.payload);
       break;
+    case "audit":
+      store.appendAudit(msg.payload);
+      break;
   }
 };
 ```
@@ -64,6 +68,37 @@ ws.onmessage = (raw) => {
 ---
 
 ## Event catalog
+
+### `audit`
+
+**Producer:** `audit.Recorder` after every successful append (HTTP mutations + domain actions)  
+**Recipients:** Admin-live clients (`/ws/admin/live`) only  
+**Channel buffer:** 256
+
+**Payload:** full audit entry (same shape as `GET /admin/audit/{id}`):
+
+```json
+{
+  "id": "…",
+  "actor_id": "…",
+  "action_type": "user_suspended",
+  "entity_type": "user",
+  "entity_id": "…",
+  "request_id": "…",
+  "seq": 42,
+  "prev_hash": "…",
+  "entry_hash": "…",
+  "signature": "…",
+  "archive_uri": "file://… or s3://…",
+  "timestamp": "2026-07-25T12:00:00Z",
+  "before": { },
+  "after": { }
+}
+```
+
+REST companions: `GET /admin/audit`, `GET /admin/audit/{id}`, `GET /admin/audit/{id}/verify`.
+
+---
 
 ### `conversion`
 

@@ -28,6 +28,13 @@ type Config struct {
 	Imagekit_private_key string
 	Imagekit_public_key  string
 	Imagekit_url_endpoint string
+	Audit_hmac_secret    string
+	Audit_s3_endpoint    string
+	Audit_s3_bucket      string
+	Audit_s3_region      string
+	Audit_s3_access_key  string
+	Audit_s3_secret_key  string
+	Audit_archive_dir    string
 }
 
 func Load() Config {
@@ -53,6 +60,13 @@ func Load() Config {
 		Imagekit_private_key:  envOr("IMAGEKIT_PRIVATE_KEY", ""),
 		Imagekit_public_key:   envOr("IMAGEKIT_PUBLIC_KEY", ""),
 		Imagekit_url_endpoint: envOr("IMAGEKIT_URL_ENDPOINT", ""),
+		Audit_hmac_secret:     envOr("AUDIT_HMAC_SECRET", envOr("APP_KEY", "")),
+		Audit_s3_endpoint:     envOr("AUDIT_S3_ENDPOINT", ""),
+		Audit_s3_bucket:       envOr("AUDIT_S3_BUCKET", ""),
+		Audit_s3_region:       envOr("AUDIT_S3_REGION", "auto"),
+		Audit_s3_access_key:   envOr("AUDIT_S3_ACCESS_KEY", ""),
+		Audit_s3_secret_key:   envOr("AUDIT_S3_SECRET_KEY", ""),
+		Audit_archive_dir:     envOr("AUDIT_ARCHIVE_DIR", "./var/audit"),
 	}
 }
 

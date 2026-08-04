@@ -320,7 +320,7 @@ func (q *Queries) ListCampaigns(ctx context.Context, arg ListCampaignsParams) ([
 }
 
 const listManagersByCampaignID = `-- name: ListManagersByCampaignID :many
-SELECT u.id, u.email, u.password_hash, u.role, u.provider, u.google_id, u.full_name, u.avatar_url, u.totp_secret, u.totp_enabled, u.totp_verified, u.totp_last_verified_at, u.invite_token, u.invite_expires_at, u.active, u.created_at, u.updated_at FROM users u
+SELECT u.id, u.email, u.password_hash, u.role, u.provider, u.google_id, u.full_name, u.avatar_url, u.totp_secret, u.totp_enabled, u.totp_verified, u.totp_last_verified_at, u.invite_token, u.invite_expires_at, u.active, u.created_at, u.updated_at, u.status, u.deleted_at FROM users u
 JOIN manager_campaign_assignments m ON m.manager_id = u.id
 WHERE m.campaign_id = $1
 ORDER BY u.full_name
@@ -353,6 +353,8 @@ func (q *Queries) ListManagersByCampaignID(ctx context.Context, campaignID strin
 			&i.Active,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Status,
+			&i.DeletedAt,
 		); err != nil {
 			return nil, err
 		}

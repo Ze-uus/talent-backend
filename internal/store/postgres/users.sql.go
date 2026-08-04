@@ -14,8 +14,8 @@ import (
 const createUser = `-- name: CreateUser :exec
 INSERT INTO users (email, password_hash, role, provider, google_id, full_name,
   avatar_url, totp_secret, totp_enabled, totp_verified, totp_last_verified_at,
-  invite_token, invite_expires_at, active)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+  invite_token, invite_expires_at, active, status, deleted_at)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 `
 
 type CreateUserParams struct {
@@ -33,6 +33,8 @@ type CreateUserParams struct {
 	InviteToken        pgtype.Text
 	InviteExpiresAt    pgtype.Timestamptz
 	Active             bool
+	Status             string
+	DeletedAt          pgtype.Timestamptz
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) error {
@@ -51,12 +53,14 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) error {
 		arg.InviteToken,
 		arg.InviteExpiresAt,
 		arg.Active,
+		arg.Status,
+		arg.DeletedAt,
 	)
 	return err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, password_hash, role, provider, google_id, full_name, avatar_url, totp_secret, totp_enabled, totp_verified, totp_last_verified_at, invite_token, invite_expires_at, active, created_at, updated_at FROM users WHERE email = $1
+SELECT id, email, password_hash, role, provider, google_id, full_name, avatar_url, totp_secret, totp_enabled, totp_verified, totp_last_verified_at, invite_token, invite_expires_at, active, created_at, updated_at, status, deleted_at FROM users WHERE email = $1
 `
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
@@ -80,12 +84,14 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.Active,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Status,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const getUserByGoogleID = `-- name: GetUserByGoogleID :one
-SELECT id, email, password_hash, role, provider, google_id, full_name, avatar_url, totp_secret, totp_enabled, totp_verified, totp_last_verified_at, invite_token, invite_expires_at, active, created_at, updated_at FROM users WHERE google_id = $1
+SELECT id, email, password_hash, role, provider, google_id, full_name, avatar_url, totp_secret, totp_enabled, totp_verified, totp_last_verified_at, invite_token, invite_expires_at, active, created_at, updated_at, status, deleted_at FROM users WHERE google_id = $1
 `
 
 func (q *Queries) GetUserByGoogleID(ctx context.Context, googleID pgtype.Text) (User, error) {
@@ -109,12 +115,14 @@ func (q *Queries) GetUserByGoogleID(ctx context.Context, googleID pgtype.Text) (
 		&i.Active,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Status,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, password_hash, role, provider, google_id, full_name, avatar_url, totp_secret, totp_enabled, totp_verified, totp_last_verified_at, invite_token, invite_expires_at, active, created_at, updated_at FROM users WHERE id = $1
+SELECT id, email, password_hash, role, provider, google_id, full_name, avatar_url, totp_secret, totp_enabled, totp_verified, totp_last_verified_at, invite_token, invite_expires_at, active, created_at, updated_at, status, deleted_at FROM users WHERE id = $1
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id string) (User, error) {
@@ -138,12 +146,14 @@ func (q *Queries) GetUserByID(ctx context.Context, id string) (User, error) {
 		&i.Active,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Status,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const getUserByInviteToken = `-- name: GetUserByInviteToken :one
-SELECT id, email, password_hash, role, provider, google_id, full_name, avatar_url, totp_secret, totp_enabled, totp_verified, totp_last_verified_at, invite_token, invite_expires_at, active, created_at, updated_at FROM users WHERE invite_token = $1 AND invite_expires_at > NOW()
+SELECT id, email, password_hash, role, provider, google_id, full_name, avatar_url, totp_secret, totp_enabled, totp_verified, totp_last_verified_at, invite_token, invite_expires_at, active, created_at, updated_at, status, deleted_at FROM users WHERE invite_token = $1 AND invite_expires_at > NOW()
 `
 
 func (q *Queries) GetUserByInviteToken(ctx context.Context, inviteToken pgtype.Text) (User, error) {
@@ -167,24 +177,28 @@ func (q *Queries) GetUserByInviteToken(ctx context.Context, inviteToken pgtype.T
 		&i.Active,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Status,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, email, password_hash, role, provider, google_id, full_name, avatar_url, totp_secret, totp_enabled, totp_verified, totp_last_verified_at, invite_token, invite_expires_at, active, created_at, updated_at FROM users
+SELECT id, email, password_hash, role, provider, google_id, full_name, avatar_url, totp_secret, totp_enabled, totp_verified, totp_last_verified_at, invite_token, invite_expires_at, active, created_at, updated_at, status, deleted_at FROM users
 WHERE ($1::text = '' OR role = $1)
   AND ($2::boolean IS NULL OR active = $2)
+  AND ($3::text = '' OR status = $3)
 ORDER BY created_at DESC
 `
 
 type ListUsersParams struct {
 	Column1 string
 	Column2 bool
+	Column3 string
 }
 
 func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error) {
-	rows, err := q.db.Query(ctx, listUsers, arg.Column1, arg.Column2)
+	rows, err := q.db.Query(ctx, listUsers, arg.Column1, arg.Column2, arg.Column3)
 	if err != nil {
 		return nil, err
 	}
@@ -210,6 +224,8 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 			&i.Active,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Status,
+			&i.DeletedAt,
 		); err != nil {
 			return nil, err
 		}

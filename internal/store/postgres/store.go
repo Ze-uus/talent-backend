@@ -48,6 +48,14 @@ func pts(t pgtype.Timestamptz) time.Time {
 	return time.Time{}
 }
 
+func ptsToPtr(t pgtype.Timestamptz) *time.Time {
+	if !t.Valid || t.Time.IsZero() {
+		return nil
+	}
+	tt := t.Time
+	return &tt
+}
+
 func ptsPtr(t *time.Time) pgtype.Timestamptz {
 	if t == nil || t.IsZero() {
 		return pgtype.Timestamptz{Valid: false}
@@ -74,6 +82,8 @@ func toStoreUser(u User) store.User {
 		Invite_token:          ptext(u.InviteToken),
 		Invite_expires_at:     pts(u.InviteExpiresAt),
 		Active:                u.Active,
+		Status:                store.User_status(u.Status),
+		Deleted_at:            ptsToPtr(u.DeletedAt),
 		Created_at:            pts(u.CreatedAt),
 		Updated_at:            pts(u.UpdatedAt),
 	}
@@ -319,14 +329,26 @@ func toStoreViewerPassword(p ViewerPassword) store.ViewerPassword {
 }
 
 func toStoreAuditLog(a AuditLog) store.AuditLog {
+	seq := int64(0)
+	if a.Seq.Valid {
+		seq = a.Seq.Int64
+	}
 	return store.AuditLog{
 		ID:           a.ID,
-		Actor_id:     a.ActorID,
+		Actor_id:     ptext(a.ActorID),
 		Action_type:  a.ActionType,
 		Entity_type:  a.EntityType,
 		Entity_id:    a.EntityID,
 		Before_state: a.BeforeState,
 		After_state:  a.AfterState,
+		Request_id:   a.RequestID,
+		Seq:          seq,
+		Prev_hash:    a.PrevHash,
+		Entry_hash:   a.EntryHash,
+		Signature:    a.Signature,
+		Archive_uri:  a.ArchiveUri,
+		IP_address:   a.IpAddress,
+		User_agent:   a.UserAgent,
 		Created_at:   pts(a.CreatedAt),
 	}
 }
@@ -340,6 +362,10 @@ func (s *Store) Ping(ctx context.Context) error {
 // ─── Users ────────────────────────────────────────────────────────────────────
 
 func (s *Store) CreateUser(ctx context.Context, u store.User) error {
+	status := string(u.Status)
+	if status == "" {
+		status = string(store.User_status_active)
+	}
 	return s.q.CreateUser(ctx, CreateUserParams{
 		Email:              u.Email,
 		PasswordHash:       pgtype.Text{String: u.Password_hash, Valid: u.Password_hash != ""},
@@ -355,6 +381,8 @@ func (s *Store) CreateUser(ctx context.Context, u store.User) error {
 		InviteToken:        pgtype.Text{String: u.Invite_token, Valid: u.Invite_token != ""},
 		InviteExpiresAt:    ptsPtr(&u.Invite_expires_at),
 		Active:             u.Active,
+		Status:             status,
+		DeletedAt:          ptsPtr(u.Deleted_at),
 	})
 }
 
@@ -433,17 +461,26 @@ func (s *Store) UpdateUser(ctx context.Context, id string, p store.UserPatch) er
 		sets = append(sets, "active = @active")
 		args["active"] = *p.Active
 	}
+	if p.Status != nil {
+		sets = append(sets, "status = @status")
+		args["status"] = *p.Status
+	}
+	if p.Deleted_at != nil {
+		sets = append(sets, "deleted_at = @deleted_at")
+		args["deleted_at"] = *p.Deleted_at
+	}
 	_, err := s.pool.Exec(ctx,
 		"UPDATE users SET "+strings.Join(sets, ", ")+" WHERE id = @id", args)
 	return err
 }
 
 func (s *Store) ListUsers(ctx context.Context, f store.UserFilter) ([]store.User, error) {
-	args := pgx.NamedArgs{"role": f.Role}
+	args := pgx.NamedArgs{"role": f.Role, "status": f.Status}
 	q := `SELECT id, email, password_hash, role, provider, google_id, full_name, avatar_url,
 		totp_secret, totp_enabled, totp_verified, totp_last_verified_at, invite_token,
-		invite_expires_at, active, created_at, updated_at
-		FROM users WHERE (@role::text = '' OR role = @role)`
+		invite_expires_at, active, created_at, updated_at, status, deleted_at
+		FROM users WHERE (@role::text = '' OR role = @role)
+		AND (@status::text = '' OR status = @status)`
 	if f.Active != nil {
 		q += " AND active = @active"
 		args["active"] = *f.Active
@@ -461,7 +498,7 @@ func (s *Store) ListUsers(ctx context.Context, f store.UserFilter) ([]store.User
 			&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.Provider, &u.GoogleID,
 			&u.FullName, &u.AvatarUrl, &u.TotpSecret, &u.TotpEnabled, &u.TotpVerified,
 			&u.TotpLastVerifiedAt, &u.InviteToken, &u.InviteExpiresAt, &u.Active,
-			&u.CreatedAt, &u.UpdatedAt,
+			&u.CreatedAt, &u.UpdatedAt, &u.Status, &u.DeletedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -785,9 +822,15 @@ func (s *Store) UpdateTalent(ctx context.Context, id string, p store.TalentPatch
 		sets = append(sets, "report_compliance = @report_compliance")
 		args["report_compliance"] = *p.Report_compliance
 	}
-	_, err := s.pool.Exec(ctx,
+	tag, err := s.pool.Exec(ctx,
 		"UPDATE talents SET "+strings.Join(sets, ", ")+" WHERE id = @id", args)
-	return err
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return errors.New("not_found")
+	}
+	return nil
 }
 
 func (s *Store) ListAllTalents(ctx context.Context) ([]store.Talent, error) {
@@ -910,8 +953,8 @@ func (s *Store) DecrementRemainingBudget(ctx context.Context, campaign_id string
 	})
 }
 
-func (s *Store) NextCampaignHumanID(ctx context.Context, brand_shortcode string) (string, error) {
-	brand, err := s.q.GetBrandByShortcode(ctx, brand_shortcode)
+func (s *Store) NextCampaignHumanID(ctx context.Context, brand_id string) (string, error) {
+	brand, err := s.q.GetBrandByID(ctx, brand_id)
 	if err != nil {
 		return "", err
 	}
@@ -920,7 +963,7 @@ func (s *Store) NextCampaignHumanID(ctx context.Context, brand_shortcode string)
 		return "", err
 	}
 	yy := time.Now().UTC().Year() % 100
-	return fmt.Sprintf("%s-%02d-%02d", brand_shortcode, yy, count+1), nil
+	return fmt.Sprintf("%s-%02d-%02d", brand.Shortcode, yy, count+1), nil
 }
 
 func (s *Store) GetCampaignsByManagerID(ctx context.Context, manager_id string) ([]store.Campaign, error) {
@@ -1543,15 +1586,27 @@ func (s *Store) ValidateViewerPassword(ctx context.Context, viewer_id, password 
 
 // ─── Audit Log ────────────────────────────────────────────────────────────────
 
+func auditActorText(actor_id string) pgtype.Text {
+	return pgtype.Text{String: actor_id, Valid: actor_id != ""}
+}
+
 func (s *Store) WriteAuditLog(ctx context.Context, entry store.AuditLog) error {
 	return s.q.WriteAuditLog(ctx, WriteAuditLogParams{
 		ID:          entry.ID,
-		ActorID:     entry.Actor_id,
+		ActorID:     auditActorText(entry.Actor_id),
 		ActionType:  entry.Action_type,
 		EntityType:  entry.Entity_type,
 		EntityID:    entry.Entity_id,
 		BeforeState: entry.Before_state,
 		AfterState:  entry.After_state,
+		RequestID:   entry.Request_id,
+		Seq:         pgtype.Int8{Int64: entry.Seq, Valid: entry.Seq != 0},
+		PrevHash:    entry.Prev_hash,
+		EntryHash:   entry.Entry_hash,
+		Signature:   entry.Signature,
+		ArchiveUri:  entry.Archive_uri,
+		IpAddress:   entry.IP_address,
+		UserAgent:   entry.User_agent,
 	})
 }
 
@@ -1568,4 +1623,137 @@ func (s *Store) ListAuditLog(ctx context.Context, entity_type, entity_id string)
 		out[i] = toStoreAuditLog(r)
 	}
 	return out, nil
+}
+
+func (s *Store) GetAuditLogByID(ctx context.Context, id string) (store.AuditLog, error) {
+	row, err := s.q.GetAuditLogByID(ctx, id)
+	if err != nil {
+		return store.AuditLog{}, err
+	}
+	return toStoreAuditLog(row), nil
+}
+
+func (s *Store) GetAuditChainTip(ctx context.Context) (string, int64, error) {
+	tip, err := s.q.GetAuditChainTip(ctx)
+	if err != nil {
+		return "", 0, err
+	}
+	return tip.LastHash, tip.LastSeq, nil
+}
+
+// AppendAuditLog locks the chain tip, assigns seq from tip+1, inserts, and advances the tip.
+// Caller must supply Prev_hash, Entry_hash, Signature, Seq matching tip+1.
+func (s *Store) AppendAuditLog(ctx context.Context, entry store.AuditLog) (store.AuditLog, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return store.AuditLog{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	qtx := s.q.WithTx(tx)
+	tip, err := qtx.GetAuditChainTipForUpdate(ctx)
+	if err != nil {
+		return store.AuditLog{}, err
+	}
+	if entry.Prev_hash == "" {
+		entry.Prev_hash = tip.LastHash
+	}
+	if entry.Seq == 0 {
+		entry.Seq = tip.LastSeq + 1
+	}
+	if entry.Prev_hash != tip.LastHash || entry.Seq != tip.LastSeq+1 {
+		return store.AuditLog{}, fmt.Errorf("audit_chain_mismatch")
+	}
+
+	if err := qtx.WriteAuditLog(ctx, WriteAuditLogParams{
+		ID:          entry.ID,
+		ActorID:     auditActorText(entry.Actor_id),
+		ActionType:  entry.Action_type,
+		EntityType:  entry.Entity_type,
+		EntityID:    entry.Entity_id,
+		BeforeState: entry.Before_state,
+		AfterState:  entry.After_state,
+		RequestID:   entry.Request_id,
+		Seq:         pgtype.Int8{Int64: entry.Seq, Valid: true},
+		PrevHash:    entry.Prev_hash,
+		EntryHash:   entry.Entry_hash,
+		Signature:   entry.Signature,
+		ArchiveUri:  entry.Archive_uri,
+		IpAddress:   entry.IP_address,
+		UserAgent:   entry.User_agent,
+	}); err != nil {
+		return store.AuditLog{}, err
+	}
+	if err := qtx.UpdateAuditChainTip(ctx, UpdateAuditChainTipParams{
+		LastHash: entry.Entry_hash,
+		LastSeq:  entry.Seq,
+	}); err != nil {
+		return store.AuditLog{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return store.AuditLog{}, err
+	}
+	entry.Created_at = time.Now().UTC()
+	return entry, nil
+}
+
+func (s *Store) ListAuditLogFiltered(ctx context.Context, f store.AuditFilter) ([]store.AuditLog, error) {
+	limit := f.Limit
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	args := pgx.NamedArgs{
+		"entity_type": f.Entity_type,
+		"entity_id":   f.Entity_id,
+		"actor_id":    f.Actor_id,
+		"action_type": f.Action_type,
+		"after_seq":   f.After_seq,
+		"limit":       limit,
+	}
+	q := `SELECT id, actor_id, action_type, entity_type, entity_id, before_state, after_state,
+		created_at, request_id, seq, prev_hash, entry_hash, signature, archive_uri, ip_address, user_agent
+		FROM audit_log WHERE 1=1`
+	if f.Entity_type != "" {
+		q += " AND entity_type = @entity_type"
+	}
+	if f.Entity_id != "" {
+		q += " AND entity_id = @entity_id"
+	}
+	if f.Actor_id != "" {
+		q += " AND actor_id = @actor_id"
+	}
+	if f.Action_type != "" {
+		q += " AND action_type = @action_type"
+	}
+	if f.From != nil {
+		q += " AND created_at >= @from_ts"
+		args["from_ts"] = *f.From
+	}
+	if f.To != nil {
+		q += " AND created_at <= @to_ts"
+		args["to_ts"] = *f.To
+	}
+	if f.After_seq > 0 {
+		q += " AND seq < @after_seq"
+	}
+	q += " ORDER BY seq DESC LIMIT @limit"
+
+	pgRows, err := s.pool.Query(ctx, q, args)
+	if err != nil {
+		return nil, err
+	}
+	defer pgRows.Close()
+	var out []store.AuditLog
+	for pgRows.Next() {
+		var a AuditLog
+		if err := pgRows.Scan(
+			&a.ID, &a.ActorID, &a.ActionType, &a.EntityType, &a.EntityID,
+			&a.BeforeState, &a.AfterState, &a.CreatedAt, &a.RequestID, &a.Seq,
+			&a.PrevHash, &a.EntryHash, &a.Signature, &a.ArchiveUri, &a.IpAddress, &a.UserAgent,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, toStoreAuditLog(a))
+	}
+	return out, pgRows.Err()
 }

@@ -7,10 +7,72 @@ package postgres
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const getAuditChainTip = `-- name: GetAuditChainTip :one
+SELECT last_hash, last_seq FROM audit_chain_tip WHERE id = 1
+`
+
+type GetAuditChainTipRow struct {
+	LastHash string
+	LastSeq  int64
+}
+
+func (q *Queries) GetAuditChainTip(ctx context.Context) (GetAuditChainTipRow, error) {
+	row := q.db.QueryRow(ctx, getAuditChainTip)
+	var i GetAuditChainTipRow
+	err := row.Scan(&i.LastHash, &i.LastSeq)
+	return i, err
+}
+
+const getAuditChainTipForUpdate = `-- name: GetAuditChainTipForUpdate :one
+SELECT last_hash, last_seq FROM audit_chain_tip WHERE id = 1 FOR UPDATE
+`
+
+type GetAuditChainTipForUpdateRow struct {
+	LastHash string
+	LastSeq  int64
+}
+
+func (q *Queries) GetAuditChainTipForUpdate(ctx context.Context) (GetAuditChainTipForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, getAuditChainTipForUpdate)
+	var i GetAuditChainTipForUpdateRow
+	err := row.Scan(&i.LastHash, &i.LastSeq)
+	return i, err
+}
+
+const getAuditLogByID = `-- name: GetAuditLogByID :one
+SELECT id, actor_id, action_type, entity_type, entity_id, before_state, after_state, created_at, request_id, seq, prev_hash, entry_hash, signature, archive_uri, ip_address, user_agent FROM audit_log WHERE id = $1
+`
+
+func (q *Queries) GetAuditLogByID(ctx context.Context, id string) (AuditLog, error) {
+	row := q.db.QueryRow(ctx, getAuditLogByID, id)
+	var i AuditLog
+	err := row.Scan(
+		&i.ID,
+		&i.ActorID,
+		&i.ActionType,
+		&i.EntityType,
+		&i.EntityID,
+		&i.BeforeState,
+		&i.AfterState,
+		&i.CreatedAt,
+		&i.RequestID,
+		&i.Seq,
+		&i.PrevHash,
+		&i.EntryHash,
+		&i.Signature,
+		&i.ArchiveUri,
+		&i.IpAddress,
+		&i.UserAgent,
+	)
+	return i, err
+}
+
 const listAuditLog = `-- name: ListAuditLog :many
-SELECT id, actor_id, action_type, entity_type, entity_id, before_state, after_state, created_at FROM audit_log
+SELECT id, actor_id, action_type, entity_type, entity_id, before_state, after_state, created_at, request_id, seq, prev_hash, entry_hash, signature, archive_uri, ip_address, user_agent FROM audit_log
 WHERE entity_type = $1 AND entity_id = $2
 ORDER BY created_at DESC
 `
@@ -38,6 +100,14 @@ func (q *Queries) ListAuditLog(ctx context.Context, arg ListAuditLogParams) ([]A
 			&i.BeforeState,
 			&i.AfterState,
 			&i.CreatedAt,
+			&i.RequestID,
+			&i.Seq,
+			&i.PrevHash,
+			&i.EntryHash,
+			&i.Signature,
+			&i.ArchiveUri,
+			&i.IpAddress,
+			&i.UserAgent,
 		); err != nil {
 			return nil, err
 		}
@@ -49,20 +119,45 @@ func (q *Queries) ListAuditLog(ctx context.Context, arg ListAuditLogParams) ([]A
 	return items, nil
 }
 
+const updateAuditChainTip = `-- name: UpdateAuditChainTip :exec
+UPDATE audit_chain_tip
+SET last_hash = $1, last_seq = $2, updated_at = NOW()
+WHERE id = 1
+`
+
+type UpdateAuditChainTipParams struct {
+	LastHash string
+	LastSeq  int64
+}
+
+func (q *Queries) UpdateAuditChainTip(ctx context.Context, arg UpdateAuditChainTipParams) error {
+	_, err := q.db.Exec(ctx, updateAuditChainTip, arg.LastHash, arg.LastSeq)
+	return err
+}
+
 const writeAuditLog = `-- name: WriteAuditLog :exec
 INSERT INTO audit_log (id, actor_id, action_type, entity_type, entity_id,
-  before_state, after_state)
-VALUES ($1,$2,$3,$4,$5,$6,$7)
+  before_state, after_state, request_id, seq, prev_hash, entry_hash, signature,
+  archive_uri, ip_address, user_agent)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 `
 
 type WriteAuditLogParams struct {
 	ID          string
-	ActorID     string
+	ActorID     pgtype.Text
 	ActionType  string
 	EntityType  string
 	EntityID    string
 	BeforeState []byte
 	AfterState  []byte
+	RequestID   string
+	Seq         pgtype.Int8
+	PrevHash    string
+	EntryHash   string
+	Signature   string
+	ArchiveUri  string
+	IpAddress   string
+	UserAgent   string
 }
 
 func (q *Queries) WriteAuditLog(ctx context.Context, arg WriteAuditLogParams) error {
@@ -74,6 +169,14 @@ func (q *Queries) WriteAuditLog(ctx context.Context, arg WriteAuditLogParams) er
 		arg.EntityID,
 		arg.BeforeState,
 		arg.AfterState,
+		arg.RequestID,
+		arg.Seq,
+		arg.PrevHash,
+		arg.EntryHash,
+		arg.Signature,
+		arg.ArchiveUri,
+		arg.IpAddress,
+		arg.UserAgent,
 	)
 	return err
 }

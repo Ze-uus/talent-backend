@@ -66,3 +66,21 @@ type TalentUpdateEvent struct {
 	Update_type string            `json:"update_type"`
 	Shard       TalentUpdateShard `json:"shard"`
 }
+
+// AuditEvent is pushed to admin-live clients after each append-only audit record.
+type AuditEvent struct {
+	ID          string `json:"id"`
+	Actor_id    string `json:"actor_id,omitempty"`
+	Action_type string `json:"action_type"`
+	Entity_type string `json:"entity_type"`
+	Entity_id   string `json:"entity_id"`
+	Request_id  string `json:"request_id,omitempty"`
+	Seq         int64  `json:"seq"`
+	Prev_hash   string `json:"prev_hash"`
+	Entry_hash  string `json:"entry_hash"`
+	Signature   string `json:"signature"`
+	Archive_uri string `json:"archive_uri,omitempty"`
+	Timestamp   time.Time `json:"timestamp"`
+	Before      any    `json:"before,omitempty"`
+	After       any    `json:"after,omitempty"`
+}

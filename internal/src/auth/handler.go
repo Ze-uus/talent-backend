@@ -94,6 +94,10 @@ func (h *handler) registerTalentAuth(api huma.API) {
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]any{
 			"token":              result.Token,
+			"user_id":            result.User_id,
+			"role":               result.Role,
+			"status":             result.Status,
+			"active":             result.Active,
 			"require_totp_setup": result.Require_totp_setup,
 			"totp_recheck_due":   result.Totp_recheck_due,
 		}, "login_success")}, nil
@@ -139,6 +143,10 @@ func (h *handler) registerTalentAuth(api huma.API) {
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]any{
 			"token":              result.Token,
+			"user_id":            result.User_id,
+			"role":               result.Role,
+			"status":             result.Status,
+			"active":             result.Active,
 			"require_totp_setup": result.Require_totp_setup,
 		}, "login_success")}, nil
 	})
@@ -352,6 +360,14 @@ func mapLoginError(err error) (status int, message string) {
 		return http.StatusForbidden, err_account_pending.Error()
 	case errors.Is(err, err_account_suspended):
 		return http.StatusForbidden, err_account_suspended.Error()
+	case errors.Is(err, err_account_banned):
+		return http.StatusForbidden, err_account_banned.Error()
+	case errors.Is(err, err_account_deleted):
+		return http.StatusForbidden, err_account_deleted.Error()
+	case errors.Is(err, err_account_rejected):
+		return http.StatusForbidden, err_account_rejected.Error()
+	case errors.Is(err, err_account_invited):
+		return http.StatusForbidden, err_account_invited.Error()
 	default:
 		return http.StatusInternalServerError, "login_failed"
 	}

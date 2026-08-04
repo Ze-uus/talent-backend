@@ -228,9 +228,9 @@ func (h *handler) registerCycles(api huma.API) {
 	}, func(ctx context.Context, in *struct {
 		ID   string `path:"id"`
 		Body struct {
-			Cycle_budget    float64  `json:"cycle_budget"`
-			Cycle_objective string   `json:"cycle_objective"`
-			End_date        *string  `json:"end_date,omitempty"`
+			Cycle_budget    float64 `json:"cycle_budget"`
+			Cycle_objective string  `json:"cycle_objective"`
+			End_date        *string `json:"end_date,omitempty"`
 		}
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
@@ -243,6 +243,10 @@ func (h *handler) registerCycles(api huma.API) {
 		}
 		created, err := h.svc.CreateCycle(ctx, c)
 		if err != nil {
+			switch err.Error() {
+			case "invalid_campaign_cpa", "target_cpa_exceeds_max_cpa", "cycle_budget_below_target_cpa":
+				return &std_output{Status: http.StatusUnprocessableEntity, Body: response.Fail(err.Error())}, nil
+			}
 			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(created, "cycle_created")}, nil

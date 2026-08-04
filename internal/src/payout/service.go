@@ -6,18 +6,20 @@ import (
 	"time"
 
 	"github.com/Ze-uus/talent-backend/internal/algo"
+	"github.com/Ze-uus/talent-backend/internal/audit"
 	"github.com/Ze-uus/talent-backend/internal/jsonutil"
 	"github.com/Ze-uus/talent-backend/internal/mail"
 	"github.com/Ze-uus/talent-backend/internal/store"
 )
 
 type PayoutService struct {
-	st   store.Store
-	mail *mail.Service
+	st      store.Store
+	mail    *mail.Service
+	auditor *audit.Recorder
 }
 
-func New(s store.Store, mailSvc *mail.Service) *PayoutService {
-	return &PayoutService{st: s, mail: mailSvc}
+func New(s store.Store, mailSvc *mail.Service, auditor *audit.Recorder) *PayoutService {
+	return &PayoutService{st: s, mail: mailSvc, auditor: auditor}
 }
 
 // ComputeAndStoreCyclePayout runs the full Story 17 algorithm for a cycle.
@@ -128,12 +130,20 @@ func (s *PayoutService) MarkPayoutPaid(ctx context.Context, talent_id, cycle_id,
 	}); err != nil {
 		return err
 	}
-	_ = s.st.WriteAuditLog(ctx, store.AuditLog{
-		Actor_id:    actor_id,
-		Action_type: "payout_paid",
-		Entity_type: "payout_record",
-		Entity_id:   record.ID,
-	})
+	if s.auditor != nil {
+		_ = s.auditor.Record(ctx, audit.Entry{
+			Action:      "payout_paid",
+			Entity_type: "payout_record",
+			Entity_id:   record.ID,
+		})
+	} else {
+		_ = s.st.WriteAuditLog(ctx, store.AuditLog{
+			Actor_id:    actor_id,
+			Action_type: "payout_paid",
+			Entity_type: "payout_record",
+			Entity_id:   record.ID,
+		})
+	}
 	if s.mail != nil {
 		talent, err := s.st.GetTalentByID(ctx, talent_id)
 		if err == nil {
@@ -149,13 +159,22 @@ func (s *PayoutService) MarkPayoutPaid(ctx context.Context, talent_id, cycle_id,
 
 // FlagPayout marks a payout for manual review.
 func (s *PayoutService) FlagPayout(ctx context.Context, talent_id, cycle_id, reason, actor_id string) error {
-	_ = s.st.WriteAuditLog(ctx, store.AuditLog{
-		Actor_id:    actor_id,
-		Action_type: "payout_flagged",
-		Entity_type: "payout_record",
-		Entity_id:   talent_id + ":" + cycle_id,
-		After_state: jsonutil.Marshal(map[string]string{"reason": reason}),
-	})
+	if s.auditor != nil {
+		_ = s.auditor.Record(ctx, audit.Entry{
+			Action:      "payout_flagged",
+			Entity_type: "payout_record",
+			Entity_id:   talent_id + ":" + cycle_id,
+			After:       map[string]string{"reason": reason},
+		})
+	} else {
+		_ = s.st.WriteAuditLog(ctx, store.AuditLog{
+			Actor_id:    actor_id,
+			Action_type: "payout_flagged",
+			Entity_type: "payout_record",
+			Entity_id:   talent_id + ":" + cycle_id,
+			After_state: jsonutil.Marshal(map[string]string{"reason": reason}),
+		})
+	}
 	return nil
 }
 

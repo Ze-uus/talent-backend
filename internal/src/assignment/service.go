@@ -4,10 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"log/slog"
 	"time"
 
 	"github.com/Ze-uus/talent-backend/internal/algo"
+	"github.com/Ze-uus/talent-backend/internal/allocation"
+	"github.com/Ze-uus/talent-backend/internal/audit"
+	"github.com/Ze-uus/talent-backend/internal/baseline"
 	"github.com/Ze-uus/talent-backend/internal/domain"
 	"github.com/Ze-uus/talent-backend/internal/mail"
 	"github.com/Ze-uus/talent-backend/internal/store"
@@ -19,29 +23,40 @@ type AssignmentService struct {
 	talent_update_ch chan<- domain.TalentUpdateEvent
 	log              *slog.Logger
 	mail             *mail.Service
+	auditor          *audit.Recorder
+	delta_lt         float64
 }
 
-func New(s store.Store, talent_update_ch chan<- domain.TalentUpdateEvent, log *slog.Logger, mailSvc *mail.Service) *AssignmentService {
-	return &AssignmentService{st: s, talent_update_ch: talent_update_ch, log: log, mail: mailSvc}
+func New(s store.Store, talent_update_ch chan<- domain.TalentUpdateEvent, log *slog.Logger, mailSvc *mail.Service, auditor *audit.Recorder, delta_lt float64) *AssignmentService {
+	if delta_lt <= 0 || delta_lt >= 1 {
+		delta_lt = 0.97
+	}
+	return &AssignmentService{st: s, talent_update_ch: talent_update_ch, log: log, mail: mailSvc, auditor: auditor, delta_lt: delta_lt}
 }
 
 type SolverOutput struct {
-	Cycle_id     string                         `json:"cycle_id"`
-	Assignments  []algo.Assignment              `json:"assignments"`
-	Unassigned   []string                       `json:"unassigned"`
-	Total_cost   float64                        `json:"total_cost"`
-	Match_scores map[string]algo.MatchScoreResult `json:"match_scores"`
-	Computed_at  time.Time                      `json:"computed_at"`
+	Cycle_id           string                           `json:"cycle_id"`
+	Assignments        []algo.Assignment                `json:"assignments"`
+	Unassigned         []string                         `json:"unassigned"`
+	Unassigned_details []UnassignedDetail               `json:"unassigned_details"`
+	Total_cost         float64                          `json:"total_cost"`
+	Match_scores       map[string]algo.MatchScoreResult `json:"match_scores"`
+	Computed_at        time.Time                        `json:"computed_at"`
+}
+
+type UnassignedDetail struct {
+	Talent_id string `json:"talent_id"`
+	Reason    string `json:"reason"`
 }
 
 type ConfirmedAssignment struct {
-	Talent_id      string          `json:"talent_id"`
-	Slot_id        string          `json:"slot_id"`
-	Role_label     string          `json:"role_label"`
-	PDC_mode       store.Pdc_mode  `json:"pdc_mode"`
-	PDC_value      float64         `json:"pdc_value"`
-	Effective_tier int             `json:"effective_tier"`
-	Is_pinned      bool            `json:"is_pinned"`
+	Talent_id      string         `json:"talent_id"`
+	Slot_id        string         `json:"slot_id"`
+	Role_label     string         `json:"role_label"`
+	PDC_mode       store.Pdc_mode `json:"pdc_mode"`
+	PDC_value      float64        `json:"pdc_value"`
+	Effective_tier int            `json:"effective_tier"`
+	Is_pinned      bool           `json:"is_pinned"`
 }
 
 // RunSolver runs qualifier + match score + Hungarian for a cycle.
@@ -61,6 +76,20 @@ func (s *AssignmentService) RunSolver(ctx context.Context, cycle_id string) (Sol
 	talents, err := s.st.ListAllTalents(ctx)
 	if err != nil {
 		return SolverOutput{}, err
+	}
+	if !hasUsableSlot(slots, campaign.Target_cpa) {
+		var regenerated []store.BudgetSlot
+		regenerated, err = allocation.BuildBudgetSlots(cycle, campaign, talents)
+		if err != nil {
+			return SolverOutput{}, err
+		}
+		if len(regenerated) == 0 {
+			return SolverOutput{}, errors.New("no eligible budget slots")
+		}
+		if err := s.st.CreateBudgetSlots(ctx, regenerated); err != nil {
+			return SolverOutput{}, err
+		}
+		slots = append(slots, regenerated...)
 	}
 
 	algo_slots := make([]algo.BudgetSlot, len(slots))
@@ -83,7 +112,16 @@ func (s *AssignmentService) RunSolver(ctx context.Context, cycle_id string) (Sol
 		}
 		b, err := s.st.GetTalentBaseline(ctx, t.ID)
 		if err != nil {
-			continue
+			if bootErr := baseline.EnsureColdStart(ctx, s.st, t, s.delta_lt); bootErr != nil {
+				if s.log != nil {
+					s.log.Warn("solver: cold-start baseline failed", "talent_id", t.ID, "err", bootErr)
+				}
+				continue
+			}
+			b, err = s.st.GetTalentBaseline(ctx, t.ID)
+			if err != nil {
+				continue
+			}
 		}
 
 		dm := computeDemographicMatch(t, campaign)
@@ -115,15 +153,66 @@ func (s *AssignmentService) RunSolver(ctx context.Context, cycle_id string) (Sol
 	if err != nil {
 		return SolverOutput{}, err
 	}
+	if result.Assignments == nil {
+		result.Assignments = []algo.Assignment{}
+	}
+	if result.Unassigned == nil {
+		result.Unassigned = []string{}
+	}
 
 	return SolverOutput{
-		Cycle_id:     cycle_id,
-		Assignments:  result.Assignments,
-		Unassigned:   result.Unassigned,
-		Total_cost:   result.Total_cost,
-		Match_scores: match_scores,
-		Computed_at:  time.Now().UTC(),
+		Cycle_id:           cycle_id,
+		Assignments:        result.Assignments,
+		Unassigned:         result.Unassigned,
+		Unassigned_details: explainUnassigned(result.Unassigned, talent_profiles, algo_slots, all_tiers, campaign.Target_cpa),
+		Total_cost:         result.Total_cost,
+		Match_scores:       match_scores,
+		Computed_at:        time.Now().UTC(),
 	}, nil
+}
+
+func hasUsableSlot(slots []store.BudgetSlot, target_cpa float64) bool {
+	for _, slot := range slots {
+		if float64(slot.Tier_value) >= target_cpa && !slot.Allocated {
+			return true
+		}
+	}
+	return false
+}
+
+func explainUnassigned(
+	ids []string,
+	talents []algo.TalentProfile,
+	slots []algo.BudgetSlot,
+	all_tiers []int,
+	target_cpa float64,
+) []UnassignedDetail {
+	details := make([]UnassignedDetail, 0, len(ids))
+	for _, id := range ids {
+		reason := "no_available_slot"
+		for _, talent := range talents {
+			if talent.ID != id {
+				continue
+			}
+			if talent.Max_tier > 0 && float64(talent.Max_tier) < target_cpa {
+				reason = "max_tier_below_target_cpa"
+				break
+			}
+			for _, slot := range slots {
+				if float64(slot.Tier_value) < target_cpa {
+					reason = "slot_below_target_cpa"
+					continue
+				}
+				q, err := algo.QualifyTalentForSlot(talent, slot, all_tiers)
+				if err == nil && !q.Qualified {
+					reason = q.Reason
+				}
+			}
+			break
+		}
+		details = append(details, UnassignedDetail{Talent_id: id, Reason: reason})
+	}
+	return details
 }
 
 // ConfirmAssignments persists solver output with full allocation audit fields.
@@ -199,12 +288,20 @@ func (s *AssignmentService) ConfirmAssignments(
 		}
 	}
 	if is_override {
-		_ = s.st.WriteAuditLog(ctx, store.AuditLog{
-			Actor_id:    actor_id,
-			Action_type: "assignment_override",
-			Entity_type: "cycle",
-			Entity_id:   cycle_id,
-		})
+		if s.auditor != nil {
+			_ = s.auditor.Record(ctx, audit.Entry{
+				Action:      "assignment_override",
+				Entity_type: "cycle",
+				Entity_id:   cycle_id,
+			})
+		} else {
+			_ = s.st.WriteAuditLog(ctx, store.AuditLog{
+				Actor_id:    actor_id,
+				Action_type: "assignment_override",
+				Entity_type: "cycle",
+				Entity_id:   cycle_id,
+			})
+		}
 	}
 	return nil
 }

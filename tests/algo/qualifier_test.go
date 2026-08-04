@@ -78,6 +78,26 @@ func TestDemandTier_ZeroInputs(t *testing.T) {
 	}
 }
 
+func TestBoundedDemandTier_ClampsToTalentAndPlatformLimits(t *testing.T) {
+	cfg := algo.DefaultConfig()
+	tier := algo.BoundedDemandTier(15, 7, 300000, 300000, 5000, cfg)
+	if tier != 5000 {
+		t.Fatalf("expected tier 5000, got %d", tier)
+	}
+
+	tier = algo.BoundedDemandTier(15, 7, 300000, 300000, 50000, cfg)
+	if tier != 50000 {
+		t.Fatalf("expected tier 50000, got %d", tier)
+	}
+}
+
+func TestBoundedDemandTier_RejectsBudgetBelowMinimum(t *testing.T) {
+	cfg := algo.DefaultConfig()
+	if tier := algo.BoundedDemandTier(2, 7, 100, 10000, 5000, cfg); tier != 0 {
+		t.Fatalf("expected no tier, got %d", tier)
+	}
+}
+
 func TestQualify_NaNPDC(t *testing.T) {
 	talent := algo.TalentProfile{ID: "bad", PDC: math.NaN(), Max_tier: 5000, Cycle_length: 7}
 	slot := algo.BudgetSlot{ID: "s1", Tier_value: 5000, Target_cost: 100, Max_cost: 200}

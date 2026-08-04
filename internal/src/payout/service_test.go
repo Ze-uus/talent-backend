@@ -49,6 +49,19 @@ func (m *mockStore) WriteAuditLog(_ context.Context, e store.AuditLog) error {
 	return nil
 }
 
+func (m *mockStore) GetAuditLogByID(_ context.Context, _ string) (store.AuditLog, error) {
+	return store.AuditLog{}, nil
+}
+func (m *mockStore) ListAuditLogFiltered(_ context.Context, _ store.AuditFilter) ([]store.AuditLog, error) {
+	return nil, nil
+}
+func (m *mockStore) AppendAuditLog(_ context.Context, e store.AuditLog) (store.AuditLog, error) {
+	return e, nil
+}
+func (m *mockStore) GetAuditChainTip(_ context.Context) (string, int64, error) {
+	return "0000000000000000000000000000000000000000000000000000000000000000", 0, nil
+}
+
 // stub remaining Store interface methods
 func (m *mockStore) Ping(_ context.Context) error                                        { return nil }
 func (m *mockStore) CreateUser(_ context.Context, _ store.User) error                    { return nil }
@@ -156,7 +169,7 @@ func makeTrafficSetup(budget float64, tier int, conversions float64) (*mockStore
 
 func TestComputeAndStorePayout_TrafficPipeline(t *testing.T) {
 	ms, cycle_id := makeTrafficSetup(50000, 5000, 10)
-	svc := payout.New(ms, nil)
+	svc := payout.New(ms, nil, nil)
 	if err := svc.ComputeAndStoreCyclePayout(context.Background(), cycle_id); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -191,7 +204,7 @@ func TestComputeAndStorePayout_LeadPipeline(t *testing.T) {
 	}
 	convs := map[string]float64{"t2": 5}
 	ms := newMock(cycle, assignments, convs)
-	svc := payout.New(ms, nil)
+	svc := payout.New(ms, nil, nil)
 	if err := svc.ComputeAndStoreCyclePayout(context.Background(), "cycle-2"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -224,7 +237,7 @@ func TestComputeAndStorePayout_ScaleFactorApplied(t *testing.T) {
 	convs := map[string]float64{"ta": 20, "tb": 20}
 	ms := newMock(cycle, assignments, convs)
 	ms.campaign = campaign
-	svc := payout.New(ms, nil)
+	svc := payout.New(ms, nil, nil)
 	if err := svc.ComputeAndStoreCyclePayout(context.Background(), "cycle-3"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

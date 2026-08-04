@@ -5,6 +5,7 @@ dev-files/*
 .claude
 bin/
 tmp/
+var/
 cmd.exe
 coverage.out
 coverage.html

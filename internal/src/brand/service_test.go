@@ -150,6 +150,19 @@ func (m *mockStore) WriteAuditLog(_ context.Context, entry store.AuditLog) error
 	m.audit_log = append(m.audit_log, entry)
 	return nil
 }
+
+func (m *mockStore) GetAuditLogByID(_ context.Context, _ string) (store.AuditLog, error) {
+	return store.AuditLog{}, nil
+}
+func (m *mockStore) ListAuditLogFiltered(_ context.Context, _ store.AuditFilter) ([]store.AuditLog, error) {
+	return nil, nil
+}
+func (m *mockStore) AppendAuditLog(_ context.Context, e store.AuditLog) (store.AuditLog, error) {
+	return e, nil
+}
+func (m *mockStore) GetAuditChainTip(_ context.Context) (string, int64, error) {
+	return "0000000000000000000000000000000000000000000000000000000000000000", 0, nil
+}
 func (m *mockStore) ListAuditLog(_ context.Context, _, _ string) ([]store.AuditLog, error) {
 	return m.audit_log, nil
 }
@@ -238,7 +251,7 @@ func (m *mockStore) ValidateViewerPassword(_ context.Context, _, _ string) (bool
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 func TestAddContact_GeneratesCredentials(t *testing.T) {
-	svc := brand.New(newMock(), nil)
+	svc := brand.New(newMock(), nil, nil)
 	contact, plain, err := svc.AddContact(context.Background(), "brand-1", "Ada", "Obi", "CMO", "ada@test.com", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -261,7 +274,7 @@ func TestAddContact_MaxContactsEnforced(t *testing.T) {
 		token := string(rune('a' + i))
 		ms.contacts[token] = store.BrandContact{Brand_id: "brand-1", Token_active: true, Viewer_token: token}
 	}
-	svc := brand.New(ms, nil)
+	svc := brand.New(ms, nil, nil)
 	_, _, err := svc.AddContact(context.Background(), "brand-1", "X", "Y", "role", "x@y.com", "")
 	if err == nil || err.Error() != "max_contacts_reached" {
 		t.Errorf("expected max_contacts_reached, got %v", err)
@@ -271,7 +284,7 @@ func TestAddContact_MaxContactsEnforced(t *testing.T) {
 func TestRegeneratePassword_OldHashReplaced(t *testing.T) {
 	ms := newMock()
 	ms.contacts["tok1"] = store.BrandContact{ID: "c1", Brand_id: "brand-1", Viewer_token: "tok1", Access_password_hash: "old_hash", Token_active: true}
-	svc := brand.New(ms, nil)
+	svc := brand.New(ms, nil, nil)
 	plain, err := svc.RegeneratePassword(context.Background(), "c1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -290,7 +303,7 @@ func TestRegeneratePassword_OldHashReplaced(t *testing.T) {
 func TestRemoveContact_SoftDelete(t *testing.T) {
 	ms := newMock()
 	ms.contacts["tok2"] = store.BrandContact{ID: "c2", Brand_id: "brand-1", Viewer_token: "tok2", Token_active: true}
-	svc := brand.New(ms, nil)
+	svc := brand.New(ms, nil, nil)
 	if err := svc.RemoveContact(context.Background(), "c2", "actor-1"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -305,7 +318,7 @@ func TestRemoveContact_SoftDelete(t *testing.T) {
 func TestCreate_WithLogo(t *testing.T) {
 	ms := newMock()
 	up := &media.RecordingUploader{Result: media.UploadResult{URL: "https://ik.imagekit.io/test/logo.png"}}
-	svc := brand.New(ms, up)
+	svc := brand.New(ms, up, nil)
 	png := []byte{0x89, 0x50, 0x4e, 0x47}
 	b, err := svc.Create(context.Background(), "Acme", "fintech", "", "https://acme.test", &brand.LogoFile{
 		Body:        bytes.NewReader(png),
@@ -328,7 +341,7 @@ func TestCreate_WithLogo(t *testing.T) {
 func TestCreate_LogoUploadFailureKeepsBrand(t *testing.T) {
 	ms := newMock()
 	up := &media.RecordingUploader{Err: errors.New("ik_down")}
-	svc := brand.New(ms, up)
+	svc := brand.New(ms, up, nil)
 	b, err := svc.Create(context.Background(), "Beta", "retail", "", "", &brand.LogoFile{
 		Body:        bytes.NewReader([]byte("x")),
 		ContentType: "image/jpeg",

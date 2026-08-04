@@ -56,7 +56,7 @@ func TestHub_RoutesConversionToAdminAndTalent(t *testing.T) {
 	cycle_ch := make(chan domain.CycleUpdateEvent, 4)
 	talent_ch := make(chan domain.TalentUpdateEvent, 4)
 
-	hub := NewHub(anomaly_ch, conversion_ch, cycle_ch, talent_ch, nil, []string{"http://localhost:3000"}, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	hub := NewHub(anomaly_ch, conversion_ch, cycle_ch, talent_ch, make(chan domain.AuditEvent, 4), nil, []string{"http://localhost:3000"}, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go hub.Run(ctx)
@@ -94,7 +94,7 @@ func TestHub_RoutesAnomalyToAdminOnly(t *testing.T) {
 	cycle_ch := make(chan domain.CycleUpdateEvent, 4)
 	talent_ch := make(chan domain.TalentUpdateEvent, 4)
 
-	hub := NewHub(anomaly_ch, conversion_ch, cycle_ch, talent_ch, nil, []string{"http://localhost:3000"}, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	hub := NewHub(anomaly_ch, conversion_ch, cycle_ch, talent_ch, make(chan domain.AuditEvent, 4), nil, []string{"http://localhost:3000"}, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go hub.Run(ctx)
@@ -124,7 +124,7 @@ func TestHub_RoutesCycleUpdateToAdminOnly(t *testing.T) {
 	cycle_ch := make(chan domain.CycleUpdateEvent, 4)
 	talent_ch := make(chan domain.TalentUpdateEvent, 4)
 
-	hub := NewHub(anomaly_ch, conversion_ch, cycle_ch, talent_ch, nil, []string{"http://localhost:3000"}, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	hub := NewHub(anomaly_ch, conversion_ch, cycle_ch, talent_ch, make(chan domain.AuditEvent, 4), nil, []string{"http://localhost:3000"}, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go hub.Run(ctx)
@@ -154,7 +154,7 @@ func TestHub_RoutesTalentUpdateWithoutCycleToAllTalentConnections(t *testing.T) 
 	cycle_ch := make(chan domain.CycleUpdateEvent, 4)
 	talent_ch := make(chan domain.TalentUpdateEvent, 4)
 
-	hub := NewHub(anomaly_ch, conversion_ch, cycle_ch, talent_ch, nil, []string{"http://localhost:3000"}, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	hub := NewHub(anomaly_ch, conversion_ch, cycle_ch, talent_ch, make(chan domain.AuditEvent, 4), nil, []string{"http://localhost:3000"}, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go hub.Run(ctx)

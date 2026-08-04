@@ -17,6 +17,7 @@ import (
 	"github.com/robfig/cron/v3"
 
 	"github.com/Ze-uus/talent-backend/cmd/config"
+	"github.com/Ze-uus/talent-backend/internal/audit"
 	"github.com/Ze-uus/talent-backend/internal/domain"
 	"github.com/Ze-uus/talent-backend/internal/jobs"
 	"github.com/Ze-uus/talent-backend/internal/mail"
@@ -60,9 +61,20 @@ func main() {
 	conversion_ch := make(chan domain.ConversionEvent, 512)
 	cycle_update_ch := make(chan domain.CycleUpdateEvent, 64)
 	talent_update_ch := make(chan domain.TalentUpdateEvent, 64)
+	audit_ch := make(chan domain.AuditEvent, 256)
 
-	hub := ws.NewHub(anomaly_ch, conversion_ch, cycle_update_ch, talent_update_ch, db, cfg.Allowed_origins, log)
+	hub := ws.NewHub(anomaly_ch, conversion_ch, cycle_update_ch, talent_update_ch, audit_ch, db, cfg.Allowed_origins, log)
 	sse := ws.NewSSEHandler(db, 5*time.Second)
+
+	archiver, err := audit.NewArchiverFromEnv(
+		cfg.Audit_s3_bucket, cfg.Audit_s3_endpoint, cfg.Audit_s3_region,
+		cfg.Audit_s3_access_key, cfg.Audit_s3_secret_key, cfg.Audit_archive_dir,
+	)
+	if err != nil {
+		log.Error("audit archiver init failed", "err", err)
+		os.Exit(1)
+	}
+	auditor := audit.NewRecorder(db, archiver, cfg.Audit_hmac_secret, audit_ch, log)
 
 	mailer := mail.New(mail.Config{
 		Host:     cfg.SMTP_host,
@@ -87,12 +99,12 @@ func main() {
 
 	// ─── Services (channels wired after hub creation) ───────────────────────────
 
-	payout := payoutsvc.New(db, mailSvc)
-	campaign := campaignsvc.New(db, payout, cycle_update_ch, log, mailSvc)
-	brand := brandsvc.New(db, uploader)
-	talent := talentsvc.New(db)
-	assignment := assignmentsvc.New(db, talent_update_ch, log, mailSvc)
-	admin := adminsvc.New(db, talent_update_ch, log, mailSvc)
+	payout := payoutsvc.New(db, mailSvc, auditor)
+	campaign := campaignsvc.New(db, payout, cycle_update_ch, log, mailSvc, auditor)
+	brand := brandsvc.New(db, uploader, auditor)
+	talent := talentsvc.New(db, auditor)
+	assignment := assignmentsvc.New(db, talent_update_ch, log, mailSvc, auditor, cfg.Delta_lt)
+	admin := adminsvc.New(db, talent_update_ch, log, mailSvc, auditor, cfg.Delta_lt)
 	settings := settingssvc.New(db, authSvc, uploader)
 	tracking := trackingsvc.New(db, conversion_ch, log)
 
@@ -105,9 +117,11 @@ func main() {
 	r.Use(chimw.Recoverer)
 	r.Use(mw.CORS(cfg.Allowed_origins))
 	r.Use(mw.RateLimit(cfg.Rate_limit_rps))
+	r.Use(mw.RequestMeta)
 	// Resolve Bearer sessions for Huma handlers that call UserFromContext.
 	// Public routes (login/register/etc.) work without a token; invalid tokens still 401.
 	r.Use(mw.AuthenticateOptional(authSvc))
+	r.Use(mw.AuditMutations(auditor))
 
 	// ─── Huma API (single instance, single /docs) ────────────────────────────────
 
@@ -292,6 +306,7 @@ window.onload = function() {
 	// WS upgrades require a valid Bearer session at the chi level.
 	r.Group(func(r chi.Router) {
 		r.Use(mw.Authenticate(authSvc))
+		r.Get("/ws/admin/live", hub.ServeAdminLive)
 		r.Get("/ws/admin/{cycle_id}", hub.ServeAdmin)
 		r.Get("/ws/talent/{cycle_id}", hub.ServeTalent)
 	})

@@ -28,11 +28,13 @@ applicants each time.
 10. Remaining campaign budget is carried forward to Cycle 2
 
 **Three real-time views:**
-- **Admin** — birds-eye cycle dashboard over WebSocket (`/ws/admin/{cycle_id}`)
+- **Admin** — birds-eye cycle dashboard over WebSocket (`/ws/admin/{cycle_id}`); global audit/ops stream at `/ws/admin/live`
 - **Talent** — own conversion metrics over WebSocket (`/ws/talent/{cycle_id}`)
 - **Campaign client** — read-only trend feed over SSE (`/stream/{viewer_token}`)
 
-See [docs/websocket-events.md](docs/websocket-events.md) for the full WebSocket event catalog and shard payload reference.
+See [docs/websocket-events.md](docs/websocket-events.md) for the full WebSocket event catalog and shard payload reference. Frontend integration for user status + audit: [docs/frontend-user-status-audit.md](docs/frontend-user-status-audit.md).
+
+**Audit:** append-only `audit_log` with hash chain + HMAC signatures, archived to filesystem or S3-compatible storage. List/detail/verify via `/admin/audit`.
 
 **Auth model (Option D):**
 - Admin: invited via email → verifies invite → sets password → sets up TOTP → TOTP required every login

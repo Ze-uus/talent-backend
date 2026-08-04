@@ -63,8 +63,9 @@ type Store interface {
 	ListActiveCampaigns(ctx context.Context) ([]Campaign, error)
 	UpdateCampaign(ctx context.Context, id string, patch CampaignPatch) error
 	DecrementRemainingBudget(ctx context.Context, campaign_id string, amount float64) error
-	// NextCampaignHumanID returns the next available human_id for a brand in the current month.
-	NextCampaignHumanID(ctx context.Context, brand_shortcode string) (string, error)
+	// NextCampaignHumanID looks up the brand by UUID and returns the next human_id
+	// for the current month (e.g. "CRD-26-01" from the brand shortcode).
+	NextCampaignHumanID(ctx context.Context, brand_id string) (string, error)
 
 	// --- Campaign manager assignments ---
 	GetCampaignsByManagerID(ctx context.Context, manager_id string) ([]Campaign, error)
@@ -144,6 +145,11 @@ type Store interface {
 	// --- Audit log ---
 	WriteAuditLog(ctx context.Context, entry AuditLog) error
 	ListAuditLog(ctx context.Context, entity_type, entity_id string) ([]AuditLog, error)
+	GetAuditLogByID(ctx context.Context, id string) (AuditLog, error)
+	ListAuditLogFiltered(ctx context.Context, f AuditFilter) ([]AuditLog, error)
+	// AppendAuditLog inserts a chained entry and advances the tip under a row lock.
+	AppendAuditLog(ctx context.Context, entry AuditLog) (AuditLog, error)
+	GetAuditChainTip(ctx context.Context) (last_hash string, last_seq int64, err error)
 }
 
 // ─── Patch types ──────────────────────────────────────────────────────────────
@@ -159,6 +165,8 @@ type UserPatch struct {
 	Invite_token          *string
 	Invite_expires_at     *time.Time
 	Active                *bool
+	Status                *string
+	Deleted_at            *time.Time
 }
 
 type BrandPatch struct {
@@ -235,6 +243,7 @@ type ViewerPatch struct {
 type UserFilter struct {
 	Role   string
 	Active *bool
+	Status string
 }
 
 type BrandFilter struct {

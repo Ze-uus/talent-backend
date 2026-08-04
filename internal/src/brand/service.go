@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/Ze-uus/talent-backend/internal/audit"
 	"github.com/Ze-uus/talent-backend/internal/jsonutil"
 	"github.com/Ze-uus/talent-backend/internal/media"
 	authpkg "github.com/Ze-uus/talent-backend/internal/src/auth"
@@ -22,15 +23,16 @@ const max_contacts_per_brand = 3
 var ErrLogoUploadFailed = errors.New("logo_upload_failed")
 
 type BrandService struct {
-	st    store.Store
-	media media.Uploader
+	st       store.Store
+	media    media.Uploader
+	auditor  *audit.Recorder
 }
 
-func New(s store.Store, up media.Uploader) *BrandService {
+func New(s store.Store, up media.Uploader, auditor *audit.Recorder) *BrandService {
 	if up == nil {
 		up = media.DisabledUploader{}
 	}
-	return &BrandService{st: s, media: up}
+	return &BrandService{st: s, media: up, auditor: auditor}
 }
 
 // LogoFile is an optional image upload for brand create/patch.
@@ -173,13 +175,22 @@ func (s *BrandService) RemoveContact(ctx context.Context, contact_id, actor_id s
 	if err := s.st.DeactivateBrandContact(ctx, contact_id); err != nil {
 		return err
 	}
-	_ = s.st.WriteAuditLog(ctx, store.AuditLog{
-		Actor_id:     actor_id,
-		Action_type:  "brand_contact_removed",
-		Entity_type:  "brand_contact",
-		Entity_id:    contact_id,
-		Before_state: jsonutil.Marshal(contact),
-	})
+	if s.auditor != nil {
+		_ = s.auditor.Record(ctx, audit.Entry{
+			Action:      "brand_contact_removed",
+			Entity_type: "brand_contact",
+			Entity_id:   contact_id,
+			Before:      contact,
+		})
+	} else {
+		_ = s.st.WriteAuditLog(ctx, store.AuditLog{
+			Actor_id:     actor_id,
+			Action_type:  "brand_contact_removed",
+			Entity_type:  "brand_contact",
+			Entity_id:    contact_id,
+			Before_state: jsonutil.Marshal(contact),
+		})
+	}
 	return nil
 }
 

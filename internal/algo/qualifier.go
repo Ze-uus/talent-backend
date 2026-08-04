@@ -61,6 +61,45 @@ func DemandTier(pdc float64, cycle_length int, max_cpa float64, tier_increment i
 	return int(math.Floor(raw/float64(tier_increment))) * tier_increment
 }
 
+// BoundedDemandTier maps natural demand to a tier that the waterfall can
+// actually consume. It respects the cycle budget share, platform cap, and
+// talent-specific cap.
+func BoundedDemandTier(
+	pdc float64,
+	cycle_length int,
+	max_cpa float64,
+	cycle_budget float64,
+	talent_max_tier int,
+	cfg CycleConfig,
+) int {
+	natural := DemandTier(pdc, cycle_length, max_cpa, cfg.Tier_increment)
+	if natural == 0 || cycle_budget <= 0 {
+		return 0
+	}
+
+	upper := cfg.Max_tier_cap
+	budgetUpper := int(math.Floor(
+		(cycle_budget*cfg.Budget_share_pct)/float64(cfg.Tier_increment),
+	)) * cfg.Tier_increment
+	if budgetUpper < upper {
+		upper = budgetUpper
+	}
+	if talent_max_tier > 0 && talent_max_tier < upper {
+		upper = talent_max_tier
+	}
+	upper = (upper / cfg.Tier_increment) * cfg.Tier_increment
+	if upper < cfg.Min_tier {
+		return 0
+	}
+	if natural > upper {
+		return upper
+	}
+	if natural < cfg.Min_tier {
+		return cfg.Min_tier
+	}
+	return natural
+}
+
 func QualifyTalentForSlot(t TalentProfile, slot BudgetSlot, all_tiers []int) (QualResult, error) {
 	if !isFinite(t.PDC) {
 		return QualResult{}, fmt.Errorf("talent %s has non-finite PDC: %f", t.ID, t.PDC)

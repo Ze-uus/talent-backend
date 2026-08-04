@@ -234,6 +234,19 @@ func (m *mockStore) ListAuditLog(_ context.Context, _, _ string) ([]store.AuditL
 func (m *mockStore) ListAllTalents(_ context.Context) ([]store.Talent, error) { return nil, nil }
 func (m *mockStore) WriteAuditLog(_ context.Context, _ store.AuditLog) error    { return nil }
 
+func (m *mockStore) GetAuditLogByID(_ context.Context, _ string) (store.AuditLog, error) {
+	return store.AuditLog{}, nil
+}
+func (m *mockStore) ListAuditLogFiltered(_ context.Context, _ store.AuditFilter) ([]store.AuditLog, error) {
+	return nil, nil
+}
+func (m *mockStore) AppendAuditLog(_ context.Context, e store.AuditLog) (store.AuditLog, error) {
+	return e, nil
+}
+func (m *mockStore) GetAuditChainTip(_ context.Context) (string, int64, error) {
+	return "0000000000000000000000000000000000000000000000000000000000000000", 0, nil
+}
+
 func baseMock() *mockStore {
 	return &mockStore{
 		link: store.TrackingLink{

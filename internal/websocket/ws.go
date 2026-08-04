@@ -25,6 +25,7 @@ const (
 	msg_conversion    ws_message_type = "conversion"
 	msg_cycle_update  ws_message_type = "cycle_update"
 	msg_talent_update ws_message_type = "talent_update"
+	msg_audit         ws_message_type = "audit"
 )
 
 type WSMessage struct {
@@ -42,6 +43,7 @@ type Hub struct {
 	conversion_ch    <-chan domain.ConversionEvent
 	cycle_update_ch  <-chan domain.CycleUpdateEvent
 	talent_update_ch <-chan domain.TalentUpdateEvent
+	audit_ch         <-chan domain.AuditEvent
 	st               store.Store
 	allowed_origins  []string
 	upgrader         gws.Upgrader
@@ -50,6 +52,8 @@ type Hub struct {
 	admin_clients map[string]map[*client]bool
 	// talent_clients: talent_id:cycle_id → set of clients (own events only)
 	talent_clients map[string]map[*client]bool
+	// admin_live: global admin ops stream (audit, etc.)
+	admin_live map[*client]bool
 
 	register   chan *client
 	unregister chan *client
@@ -62,6 +66,7 @@ func NewHub(
 	conversion_ch <-chan domain.ConversionEvent,
 	cycle_update_ch <-chan domain.CycleUpdateEvent,
 	talent_update_ch <-chan domain.TalentUpdateEvent,
+	audit_ch <-chan domain.AuditEvent,
 	st store.Store,
 	allowed_origins []string,
 	log *slog.Logger,
@@ -71,10 +76,12 @@ func NewHub(
 		conversion_ch:    conversion_ch,
 		cycle_update_ch:  cycle_update_ch,
 		talent_update_ch: talent_update_ch,
+		audit_ch:         audit_ch,
 		st:               st,
 		allowed_origins:  allowed_origins,
 		admin_clients:    make(map[string]map[*client]bool),
 		talent_clients:   make(map[string]map[*client]bool),
+		admin_live:       make(map[*client]bool),
 		register:         make(chan *client, 32),
 		unregister:       make(chan *client, 32),
 		log:              log,
@@ -108,7 +115,9 @@ func (h *Hub) Run(ctx context.Context) {
 
 		case c := <-h.register:
 			h.mu.Lock()
-			if c.is_admin {
+			if c.is_live {
+				h.admin_live[c] = true
+			} else if c.is_admin {
 				if h.admin_clients[c.cycle_id] == nil {
 					h.admin_clients[c.cycle_id] = make(map[*client]bool)
 				}
@@ -124,7 +133,9 @@ func (h *Hub) Run(ctx context.Context) {
 
 		case c := <-h.unregister:
 			h.mu.Lock()
-			if c.is_admin {
+			if c.is_live {
+				delete(h.admin_live, c)
+			} else if c.is_admin {
 				if clients, ok := h.admin_clients[c.cycle_id]; ok {
 					delete(clients, c)
 					if len(clients) == 0 {
@@ -186,6 +197,14 @@ func (h *Hub) Run(ctx context.Context) {
 			} else {
 				h.broadcastToTalentAllCycles(ev.Talent_id, msg)
 			}
+
+		case ev := <-h.audit_ch:
+			msg := WSMessage{
+				Type:      msg_audit,
+				Payload:   ev,
+				Timestamp: time.Now().UTC(),
+			}
+			h.broadcastToAdminLive(msg)
 		}
 	}
 }
@@ -247,6 +266,23 @@ func (h *Hub) broadcastToTalentAllCycles(talent_id string, msg WSMessage) {
 	}
 }
 
+func (h *Hub) broadcastToAdminLive(msg WSMessage) {
+	b, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	h.mu.Lock()
+	clients := h.admin_live
+	h.mu.Unlock()
+	for c := range clients {
+		select {
+		case c.send <- b:
+		default:
+			h.log.Warn("ws: admin live client send buffer full, dropping message")
+		}
+	}
+}
+
 // ─── WS upgrade ──────────────────────────────────────────────────────────────
 
 // ServeAdmin upgrades an admin connection for a cycle's real-time event stream.
@@ -294,6 +330,29 @@ func (h *Hub) ServeTalent(w http.ResponseWriter, r *http.Request) {
 	go c.readPump()
 }
 
+// ServeAdminLive upgrades an admin connection for the global ops/audit stream.
+// Route: GET /ws/admin/live
+func (h *Hub) ServeAdminLive(w http.ResponseWriter, r *http.Request) {
+	u, ok := ctxkeys.UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	if u.Role != store.Role_superadmin && u.Role != store.Role_admin {
+		http.Error(w, "insufficient_role", http.StatusForbidden)
+		return
+	}
+	conn, err := h.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		h.log.Error("ws admin live upgrade failed", "err", err)
+		return
+	}
+	c := &client{hub: h, conn: conn, send: make(chan []byte, 256), is_admin: true, is_live: true}
+	h.register <- c
+	go c.writePump()
+	go c.readPump()
+}
+
 // ─── Client ───────────────────────────────────────────────────────────────────
 
 type client struct {
@@ -303,6 +362,7 @@ type client struct {
 	cycle_id  string
 	talent_id string
 	is_admin  bool
+	is_live   bool
 }
 
 const (

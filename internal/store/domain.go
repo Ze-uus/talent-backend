@@ -30,6 +30,19 @@ const (
 	Status_rejected  Talent_status = "rejected"
 )
 
+// User_status is the shared account lifecycle for all roles.
+type User_status string
+
+const (
+	User_status_active    User_status = "active"
+	User_status_suspended User_status = "suspended"
+	User_status_banned    User_status = "banned"
+	User_status_deleted   User_status = "deleted"
+	User_status_pending   User_status = "pending"
+	User_status_rejected  User_status = "rejected"
+	User_status_invited   User_status = "invited"
+)
+
 type Campaign_status string
 
 const (
@@ -118,6 +131,8 @@ type User struct {
 	Invite_token          string    `json:"-"` // never serialize
 	Invite_expires_at     time.Time `json:"-"` // never serialize
 	Active                bool
+	Status                User_status
+	Deleted_at            *time.Time `json:",omitempty"`
 	Created_at            time.Time
 	Updated_at            time.Time
 }
@@ -444,5 +459,25 @@ type AuditLog struct {
 	Entity_id    string
 	Before_state []byte
 	After_state  []byte
+	Request_id   string
+	Seq          int64
+	Prev_hash    string
+	Entry_hash   string
+	Signature    string
+	Archive_uri  string
+	IP_address   string
+	User_agent   string
 	Created_at   time.Time
+}
+
+// AuditFilter scopes list queries for admin audit APIs.
+type AuditFilter struct {
+	Entity_type string
+	Entity_id   string
+	Actor_id    string
+	Action_type string
+	From        *time.Time
+	To          *time.Time
+	After_seq   int64 // cursor: return rows with seq < After_seq (newer-first)
+	Limit       int
 }

@@ -7,7 +7,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/Ze-uus/talent-backend/internal/algo"
+	"github.com/google/uuid"
+
+	"github.com/Ze-uus/talent-backend/internal/allocation"
+	"github.com/Ze-uus/talent-backend/internal/audit"
 	"github.com/Ze-uus/talent-backend/internal/domain"
 	"github.com/Ze-uus/talent-backend/internal/mail"
 	payoutsvc "github.com/Ze-uus/talent-backend/internal/src/payout"
@@ -21,13 +24,14 @@ type CampaignService struct {
 	cycle_update_ch chan<- domain.CycleUpdateEvent
 	log             *slog.Logger
 	mail            *mail.Service
+	auditor         *audit.Recorder
 }
 
-func New(s store.Store, p *payoutsvc.PayoutService, cycle_update_ch chan<- domain.CycleUpdateEvent, log *slog.Logger, mailSvc *mail.Service) *CampaignService {
-	return &CampaignService{st: s, payout: p, cycle_update_ch: cycle_update_ch, log: log, mail: mailSvc}
+func New(s store.Store, p *payoutsvc.PayoutService, cycle_update_ch chan<- domain.CycleUpdateEvent, log *slog.Logger, mailSvc *mail.Service, auditor *audit.Recorder) *CampaignService {
+	return &CampaignService{st: s, payout: p, cycle_update_ch: cycle_update_ch, log: log, mail: mailSvc, auditor: auditor}
 }
 
-func (s *CampaignService) emitCycleUpdate(cycle store.Cycle, update_type string) {
+func (s *CampaignService) emitCycleUpdate(ctx context.Context, cycle store.Cycle, update_type string) {
 	ws.TryPush(s.cycle_update_ch, domain.CycleUpdateEvent{
 		Cycle_id:    cycle.ID,
 		Campaign_id: cycle.Campaign_id,
@@ -37,6 +41,14 @@ func (s *CampaignService) emitCycleUpdate(cycle store.Cycle, update_type string)
 			Remaining_budget: cycle.Remaining_budget,
 		},
 	}, s.log, "cycle_update_ch full, event dropped", "cycle_id", cycle.ID, "update_type", update_type)
+	if s.auditor != nil {
+		_ = s.auditor.Record(ctx, audit.Entry{
+			Action:      "cycle_" + update_type,
+			Entity_type: "cycle",
+			Entity_id:   cycle.ID,
+			After:       cycle,
+		})
+	}
 }
 
 // ─── Campaign CRUD ────────────────────────────────────────────────────────────
@@ -46,8 +58,30 @@ func (s *CampaignService) Create(ctx context.Context, c store.Campaign) (store.C
 	if err != nil {
 		return store.Campaign{}, err
 	}
+	if c.ID == "" {
+		c.ID = uuid.NewString()
+	}
 	c.Human_id = human_id
 	c.Status = store.Campaign_draft
+	if c.Remaining_budget == 0 {
+		c.Remaining_budget = c.Total_budget
+	}
+	if c.Market_cap == "" {
+		c.Market_cap = "M"
+	}
+	if c.Urgency_level == "" {
+		c.Urgency_level = store.Urgency_normal
+	}
+	if c.Start_date.IsZero() {
+		c.Start_date = time.Now().UTC()
+	}
+	if c.End_date.IsZero() {
+		days := c.Cycle_length
+		if days <= 0 {
+			days = 7
+		}
+		c.End_date = c.Start_date.Add(time.Duration(days) * 24 * time.Hour)
+	}
 	if err := s.st.CreateCampaign(ctx, c); err != nil {
 		return store.Campaign{}, err
 	}
@@ -58,8 +92,27 @@ func (s *CampaignService) List(ctx context.Context, filter store.CampaignFilter)
 	return s.st.ListCampaigns(ctx, filter)
 }
 
-func (s *CampaignService) Get(ctx context.Context, id string) (store.Campaign, error) {
-	return s.st.GetCampaignByID(ctx, id)
+func (s *CampaignService) Get(ctx context.Context, id string) (CampaignDetail, error) {
+	c, err := s.st.GetCampaignByID(ctx, id)
+	if err != nil {
+		return CampaignDetail{}, err
+	}
+	managers, err := s.st.ListManagersByCampaignID(ctx, id)
+	if err != nil {
+		return CampaignDetail{}, err
+	}
+	views := make([]CampaignManagerView, 0, len(managers))
+	for _, m := range managers {
+		views = append(views, CampaignManagerView{
+			ID:        m.ID,
+			Email:     m.Email,
+			Full_name: m.Full_name,
+			Role:      m.Role,
+			Status:    m.Status,
+			Active:    m.Active,
+		})
+	}
+	return CampaignDetail{Campaign: c, Campaign_managers: views}, nil
 }
 
 func (s *CampaignService) Patch(ctx context.Context, id string, patch store.CampaignPatch) error {
@@ -134,52 +187,46 @@ func (s *CampaignService) CreateCycle(ctx context.Context, c store.Cycle) (store
 		return store.Cycle{}, err
 	}
 
+	existing, err := s.st.ListCyclesByCampaign(ctx, c.Campaign_id)
+	if err != nil {
+		return store.Cycle{}, err
+	}
+
 	talents, err := s.st.ListAllTalents(ctx)
 	if err != nil {
 		return store.Cycle{}, err
 	}
-	cfg := algo.DefaultConfig()
-	all_tiers := algo.ValidTiers(cfg)
-	talents_by_tier := make(map[int]int)
-	for _, t := range talents {
-		if t.Status == store.Status_active {
-			dt := algo.DemandTier(float64(categoryPDC(t.Category)), campaign.Cycle_length, campaign.Max_cpa, cfg.Tier_increment)
-			if dt > 0 {
-				talents_by_tier[dt]++
-			}
-		}
-	}
 
-	wf_out, err := algo.RunWaterfall(algo.WaterfallInput{
-		Cycle_budget:    c.Cycle_budget,
-		Tiers:           all_tiers,
-		Talents_by_tier: talents_by_tier,
-		Config:          cfg,
-	})
-	if err != nil {
-		return store.Cycle{}, err
+	if c.ID == "" {
+		c.ID = uuid.NewString()
 	}
-
+	c.Cycle_number = len(existing) + 1
+	if c.Human_id == "" {
+		c.Human_id = fmt.Sprintf("%s-C%d", campaign.Human_id, c.Cycle_number)
+	}
 	c.Campaign_type = campaign.Campaign_type
 	c.Status = store.Cycle_pending
+	if c.Remaining_budget == 0 {
+		c.Remaining_budget = c.Cycle_budget
+	}
+	if c.Z_factor == 0 {
+		c.Z_factor = zFactorForUrgency(campaign.Urgency_level)
+	}
 	c.Start_date = time.Now().UTC()
 	if c.End_date.IsZero() {
 		c.End_date = c.Start_date.Add(time.Duration(campaign.Cycle_length) * 24 * time.Hour)
+	}
+	if err := allocation.ValidateCycle(c, campaign); err != nil {
+		return store.Cycle{}, err
 	}
 
 	if err := s.st.CreateCycle(ctx, c); err != nil {
 		return store.Cycle{}, err
 	}
 
-	var slots []store.BudgetSlot
-	for _, ts := range wf_out.Slots {
-		for i := 0; i < ts.Slot_count; i++ {
-			slots = append(slots, store.BudgetSlot{
-				Cycle_id:   c.ID,
-				Tier_value: ts.Tier,
-				Slot_index: i,
-			})
-		}
+	slots, err := allocation.BuildBudgetSlots(c, campaign, talents)
+	if err != nil {
+		return store.Cycle{}, err
 	}
 	if len(slots) > 0 {
 		if err := s.st.CreateBudgetSlots(ctx, slots); err != nil {
@@ -191,8 +238,19 @@ func (s *CampaignService) CreateCycle(ctx context.Context, c store.Cycle) (store
 	if err != nil {
 		return store.Cycle{}, err
 	}
-	s.emitCycleUpdate(created, "created")
+	s.emitCycleUpdate(ctx, created, "created")
 	return created, nil
+}
+
+func zFactorForUrgency(level store.Urgency_level) float64 {
+	switch level {
+	case store.Urgency_low:
+		return 0.8
+	case store.Urgency_high:
+		return 1.2
+	default:
+		return 1.0
+	}
 }
 
 func (s *CampaignService) ListCycles(ctx context.Context, campaign_id string) ([]store.Cycle, error) {
@@ -211,7 +269,7 @@ func (s *CampaignService) PatchCycle(ctx context.Context, id string, patch store
 	if err != nil {
 		return err
 	}
-	s.emitCycleUpdate(cycle, "patched")
+	s.emitCycleUpdate(ctx, cycle, "patched")
 	return nil
 }
 
@@ -224,7 +282,7 @@ func (s *CampaignService) ActivateCycle(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	s.emitCycleUpdate(cycle, "activated")
+	s.emitCycleUpdate(ctx, cycle, "activated")
 
 	campaign, err := s.st.GetCampaignByID(ctx, cycle.Campaign_id)
 	if err == nil {
@@ -252,7 +310,7 @@ func (s *CampaignService) PauseCycle(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	s.emitCycleUpdate(cycle, "paused")
+	s.emitCycleUpdate(ctx, cycle, "paused")
 	return nil
 }
 
@@ -265,7 +323,7 @@ func (s *CampaignService) CloseCycle(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	s.emitCycleUpdate(cycle, "closed")
+	s.emitCycleUpdate(ctx, cycle, "closed")
 
 	campaign, err := s.st.GetCampaignByID(ctx, cycle.Campaign_id)
 	if err == nil {
@@ -298,7 +356,7 @@ func (s *CampaignService) FinalisePayouts(ctx context.Context, cycle_id string) 
 	if err != nil {
 		return err
 	}
-	s.emitCycleUpdate(updated, "payouts_finalised")
+	s.emitCycleUpdate(ctx, updated, "payouts_finalised")
 	return nil
 }
 
@@ -378,15 +436,3 @@ func (s *CampaignService) campaignStatsSummary(ctx context.Context, campaign sto
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-func categoryPDC(cat store.Talent_category) int {
-	switch cat {
-	case store.Category_student:
-		return 2
-	case store.Category_micro:
-		return 5
-	case store.Category_community:
-		return 15
-	}
-	return 2
-}

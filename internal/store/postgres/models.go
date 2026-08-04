@@ -8,15 +8,30 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AuditChainTip struct {
+	ID        int32
+	LastHash  string
+	LastSeq   int64
+	UpdatedAt pgtype.Timestamptz
+}
+
 type AuditLog struct {
 	ID          string
-	ActorID     string
+	ActorID     pgtype.Text
 	ActionType  string
 	EntityType  string
 	EntityID    string
 	BeforeState []byte
 	AfterState  []byte
 	CreatedAt   pgtype.Timestamptz
+	RequestID   string
+	Seq         pgtype.Int8
+	PrevHash    string
+	EntryHash   string
+	Signature   string
+	ArchiveUri  string
+	IpAddress   string
+	UserAgent   string
 }
 
 type Brand struct {
@@ -295,6 +310,8 @@ type User struct {
 	Active             bool
 	CreatedAt          pgtype.Timestamptz
 	UpdatedAt          pgtype.Timestamptz
+	Status             string
+	DeletedAt          pgtype.Timestamptz
 }
 
 type ViewerPassword struct {

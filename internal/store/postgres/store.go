@@ -74,6 +74,7 @@ func toStoreUser(u User) store.User {
 		Provider:              store.Auth_provider(u.Provider),
 		Google_id:             ptext(u.GoogleID),
 		Full_name:             u.FullName,
+		Phone_number:          u.PhoneNumber,
 		Avatar_url:            u.AvatarUrl,
 		Totp_secret:           u.TotpSecret,
 		Totp_enabled:          u.TotpEnabled,
@@ -153,6 +154,10 @@ func toStoreTalent(t Talent) store.Talent {
 }
 
 func toStoreCampaign(c Campaign) store.Campaign {
+	content := []store.ContentItem{}
+	if len(c.Content) > 0 {
+		_ = json.Unmarshal(c.Content, &content)
+	}
 	return store.Campaign{
 		ID:               c.ID,
 		Human_id:         c.HumanID,
@@ -169,6 +174,7 @@ func toStoreCampaign(c Campaign) store.Campaign {
 		Urgency_level:    store.Urgency_level(c.UrgencyLevel),
 		Cycle_length:     int(c.CycleLength),
 		Creators_allowed: c.CreatorsAllowed,
+		Content:          content,
 		Start_date:       pts(c.StartDate),
 		End_date:         pts(c.EndDate),
 		Created_at:       pts(c.CreatedAt),
@@ -181,6 +187,13 @@ func toStoreCycle(c Cycle) store.Cycle {
 	if len(c.KpbConfig) > 0 {
 		_ = json.Unmarshal(c.KpbConfig, &kpb)
 	}
+	var contentOverride *[]store.ContentItem
+	if len(c.ContentOverride) > 0 && string(c.ContentOverride) != "null" {
+		content := []store.ContentItem{}
+		if json.Unmarshal(c.ContentOverride, &content) == nil {
+			contentOverride = &content
+		}
+	}
 	return store.Cycle{
 		ID:               c.ID,
 		Human_id:         c.HumanID,
@@ -192,6 +205,7 @@ func toStoreCycle(c Cycle) store.Cycle {
 		Cycle_objective:  c.CycleObjective,
 		Campaign_type:    store.Campaign_type(c.CampaignType),
 		KPB_config:       kpb,
+		Content_override: contentOverride,
 		Z_factor:         c.ZFactor,
 		Start_date:       pts(c.StartDate),
 		End_date:         pts(c.EndDate),
@@ -272,37 +286,37 @@ func toStoreTalentBaseline(b TalentBaseline) store.TalentBaseline {
 
 func toStorePayoutRecord(p PayoutRecord) store.PayoutRecord {
 	return store.PayoutRecord{
-		ID:               p.ID,
-		Talent_id:        p.TalentID,
-		Cycle_id:         p.CycleID,
-		Campaign_id:      p.CampaignID,
-		Pipeline_type:    store.Campaign_type(p.PipelineType),
-		Status:           store.Payout_status(p.Status),
-		Allocated_budget: p.AllocatedBudget,
-		Gross_base:       p.GrossBase,
-		KPB_total:        p.KpbTotal,
-		Gross_total:      p.GrossTotal,
-		Cost_per_unit:    p.CostPerUnit,
-		Cap_applied:      p.CapApplied,
-		Cap_exceeded:     p.CapExceeded,
-		Excess_forfeited: p.ExcessForfeited,
-		Commission_rate:  p.CommissionRate,
+		ID:                p.ID,
+		Talent_id:         p.TalentID,
+		Cycle_id:          p.CycleID,
+		Campaign_id:       p.CampaignID,
+		Pipeline_type:     store.Campaign_type(p.PipelineType),
+		Status:            store.Payout_status(p.Status),
+		Allocated_budget:  p.AllocatedBudget,
+		Gross_base:        p.GrossBase,
+		KPB_total:         p.KpbTotal,
+		Gross_total:       p.GrossTotal,
+		Cost_per_unit:     p.CostPerUnit,
+		Cap_applied:       p.CapApplied,
+		Cap_exceeded:      p.CapExceeded,
+		Excess_forfeited:  p.ExcessForfeited,
+		Commission_rate:   p.CommissionRate,
 		Commission_amount: p.CommissionAmount,
-		E_net:            p.ENet,
-		Scale_factor:     p.ScaleFactor,
-		Final_payout:     p.FinalPayout,
-		KPB_pool_source:  p.KpbPoolSource,
-		Fallback_flagged: p.FallbackFlagged,
-		Report_submitted: p.ReportSubmitted,
-		Admin_override:   p.AdminOverride,
-		Override_reason:  p.OverrideReason,
-		Approved_by:      ptext(p.ApprovedBy),
-		Approved_at:      pts(p.ApprovedAt),
-		Paid_at:          pts(p.PaidAt),
-		Failure_reason:   p.FailureReason,
-		Retry_count:      int(p.RetryCount),
-		Created_at:       pts(p.CreatedAt),
-		Updated_at:       pts(p.UpdatedAt),
+		E_net:             p.ENet,
+		Scale_factor:      p.ScaleFactor,
+		Final_payout:      p.FinalPayout,
+		KPB_pool_source:   p.KpbPoolSource,
+		Fallback_flagged:  p.FallbackFlagged,
+		Report_submitted:  p.ReportSubmitted,
+		Admin_override:    p.AdminOverride,
+		Override_reason:   p.OverrideReason,
+		Approved_by:       ptext(p.ApprovedBy),
+		Approved_at:       pts(p.ApprovedAt),
+		Paid_at:           pts(p.PaidAt),
+		Failure_reason:    p.FailureReason,
+		Retry_count:       int(p.RetryCount),
+		Created_at:        pts(p.CreatedAt),
+		Updated_at:        pts(p.UpdatedAt),
 	}
 }
 
@@ -373,6 +387,7 @@ func (s *Store) CreateUser(ctx context.Context, u store.User) error {
 		Provider:           string(u.Provider),
 		GoogleID:           pgtype.Text{String: u.Google_id, Valid: u.Google_id != ""},
 		FullName:           u.Full_name,
+		PhoneNumber:        u.Phone_number,
 		AvatarUrl:          u.Avatar_url,
 		TotpSecret:         u.Totp_secret,
 		TotpEnabled:        u.Totp_enabled,
@@ -424,6 +439,10 @@ func (s *Store) UpdateUser(ctx context.Context, id string, p store.UserPatch) er
 	if p.Full_name != nil {
 		sets = append(sets, "full_name = @full_name")
 		args["full_name"] = *p.Full_name
+	}
+	if p.Phone_number != nil {
+		sets = append(sets, "phone_number = @phone_number")
+		args["phone_number"] = *p.Phone_number
 	}
 	if p.Avatar_url != nil {
 		sets = append(sets, "avatar_url = @avatar_url")
@@ -478,7 +497,7 @@ func (s *Store) ListUsers(ctx context.Context, f store.UserFilter) ([]store.User
 	args := pgx.NamedArgs{"role": f.Role, "status": f.Status}
 	q := `SELECT id, email, password_hash, role, provider, google_id, full_name, avatar_url,
 		totp_secret, totp_enabled, totp_verified, totp_last_verified_at, invite_token,
-		invite_expires_at, active, created_at, updated_at, status, deleted_at
+		invite_expires_at, active, created_at, updated_at, status, deleted_at, phone_number
 		FROM users WHERE (@role::text = '' OR role = @role)
 		AND (@status::text = '' OR status = @status)`
 	if f.Active != nil {
@@ -498,7 +517,7 @@ func (s *Store) ListUsers(ctx context.Context, f store.UserFilter) ([]store.User
 			&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.Provider, &u.GoogleID,
 			&u.FullName, &u.AvatarUrl, &u.TotpSecret, &u.TotpEnabled, &u.TotpVerified,
 			&u.TotpLastVerifiedAt, &u.InviteToken, &u.InviteExpiresAt, &u.Active,
-			&u.CreatedAt, &u.UpdatedAt, &u.Status, &u.DeletedAt,
+			&u.CreatedAt, &u.UpdatedAt, &u.Status, &u.DeletedAt, &u.PhoneNumber,
 		); err != nil {
 			return nil, err
 		}
@@ -848,24 +867,26 @@ func (s *Store) ListAllTalents(ctx context.Context) ([]store.Talent, error) {
 // ─── Campaigns ────────────────────────────────────────────────────────────────
 
 func (s *Store) CreateCampaign(ctx context.Context, c store.Campaign) error {
+	content, _ := json.Marshal(c.Content)
 	return s.q.CreateCampaign(ctx, CreateCampaignParams{
-		ID:               c.ID,
-		HumanID:          c.Human_id,
-		BrandID:          c.Brand_id,
-		Name:             c.Name,
-		Status:           string(c.Status),
-		CampaignType:     string(c.Campaign_type),
-		TotalBudget:      c.Total_budget,
-		RemainingBudget:  c.Remaining_budget,
-		MarketCap:        c.Market_cap,
-		Audience:         c.Audience,
-		TargetCpa:        c.Target_cpa,
-		MaxCpa:           c.Max_cpa,
-		UrgencyLevel:     string(c.Urgency_level),
-		CycleLength:      int32(c.Cycle_length),
-		CreatorsAllowed:  c.Creators_allowed,
-		StartDate:        pgtype.Timestamptz{Time: c.Start_date, Valid: true},
-		EndDate:          pgtype.Timestamptz{Time: c.End_date, Valid: true},
+		ID:              c.ID,
+		HumanID:         c.Human_id,
+		BrandID:         c.Brand_id,
+		Name:            c.Name,
+		Status:          string(c.Status),
+		CampaignType:    string(c.Campaign_type),
+		TotalBudget:     c.Total_budget,
+		RemainingBudget: c.Remaining_budget,
+		MarketCap:       c.Market_cap,
+		Audience:        c.Audience,
+		TargetCpa:       c.Target_cpa,
+		MaxCpa:          c.Max_cpa,
+		UrgencyLevel:    string(c.Urgency_level),
+		CycleLength:     int32(c.Cycle_length),
+		CreatorsAllowed: c.Creators_allowed,
+		Content:         content,
+		StartDate:       pgtype.Timestamptz{Time: c.Start_date, Valid: true},
+		EndDate:         pgtype.Timestamptz{Time: c.End_date, Valid: true},
 	})
 }
 
@@ -940,6 +961,14 @@ func (s *Store) UpdateCampaign(ctx context.Context, id string, p store.CampaignP
 	if p.Creators_allowed != nil {
 		sets = append(sets, "creators_allowed = @creators_allowed")
 		args["creators_allowed"] = *p.Creators_allowed
+	}
+	if p.Content != nil {
+		content, err := json.Marshal(*p.Content)
+		if err != nil {
+			return err
+		}
+		sets = append(sets, "content = @content")
+		args["content"] = content
 	}
 	_, err := s.pool.Exec(ctx,
 		"UPDATE campaigns SET "+strings.Join(sets, ", ")+" WHERE id = @id", args)
@@ -1031,6 +1060,10 @@ func (s *Store) EmailDispatchExists(ctx context.Context, entity_type, entity_id,
 
 func (s *Store) CreateCycle(ctx context.Context, c store.Cycle) error {
 	kpb, _ := json.Marshal(c.KPB_config)
+	var contentOverride []byte
+	if c.Content_override != nil {
+		contentOverride, _ = json.Marshal(*c.Content_override)
+	}
 	return s.q.CreateCycle(ctx, CreateCycleParams{
 		ID:              c.ID,
 		HumanID:         c.Human_id,
@@ -1042,6 +1075,7 @@ func (s *Store) CreateCycle(ctx context.Context, c store.Cycle) error {
 		CycleObjective:  c.Cycle_objective,
 		CampaignType:    string(c.Campaign_type),
 		KpbConfig:       kpb,
+		ContentOverride: contentOverride,
 		ZFactor:         c.Z_factor,
 		StartDate:       pgtype.Timestamptz{Time: c.Start_date, Valid: true},
 		EndDate:         pgtype.Timestamptz{Time: c.End_date, Valid: true},
@@ -1102,6 +1136,18 @@ func (s *Store) UpdateCycle(ctx context.Context, id string, p store.CyclePatch) 
 	if p.End_date != nil {
 		sets = append(sets, "end_date = @end_date")
 		args["end_date"] = *p.End_date
+	}
+	if p.Content_override != nil {
+		sets = append(sets, "content_override = @content_override")
+		if *p.Content_override == nil {
+			args["content_override"] = nil
+		} else {
+			content, err := json.Marshal(*p.Content_override)
+			if err != nil {
+				return err
+			}
+			args["content_override"] = content
+		}
 	}
 	_, err := s.pool.Exec(ctx,
 		"UPDATE cycles SET "+strings.Join(sets, ", ")+" WHERE id = @id", args)
@@ -1267,17 +1313,17 @@ func (s *Store) ListTrackingLinksByCycle(ctx context.Context, cycle_id string) (
 
 func (s *Store) LogConversionEvent(ctx context.Context, e store.ConversionEvent) error {
 	return s.q.LogConversionEvent(ctx, LogConversionEventParams{
-		ID:              e.ID,
-		LinkToken:       e.Link_token,
-		TalentID:        e.Talent_id,
-		CampaignID:      e.Campaign_id,
-		CycleID:         e.Cycle_id,
-		PipelineType:    string(e.Pipeline_type),
-		EventType:       e.Event_type,
-		KpbType:         pgtype.Text{String: e.KPB_type, Valid: e.KPB_type != ""},
-		ValidLead:       e.Valid_lead,
-		IdempotencyKey:  e.Idempotency_key,
-		OccurredAt:      pgtype.Timestamptz{Time: e.Occurred_at, Valid: true},
+		ID:             e.ID,
+		LinkToken:      e.Link_token,
+		TalentID:       e.Talent_id,
+		CampaignID:     e.Campaign_id,
+		CycleID:        e.Cycle_id,
+		PipelineType:   string(e.Pipeline_type),
+		EventType:      e.Event_type,
+		KpbType:        pgtype.Text{String: e.KPB_type, Valid: e.KPB_type != ""},
+		ValidLead:      e.Valid_lead,
+		IdempotencyKey: e.Idempotency_key,
+		OccurredAt:     pgtype.Timestamptz{Time: e.Occurred_at, Valid: true},
 	})
 }
 

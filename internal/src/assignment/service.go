@@ -215,6 +215,114 @@ func explainUnassigned(
 	return details
 }
 
+func (s *AssignmentService) ListCycleAssignments(ctx context.Context, campaignID, cycleID string) ([]HumanAssignmentView, error) {
+	campaign, err := s.st.GetCampaignByID(ctx, campaignID)
+	if err != nil {
+		return nil, err
+	}
+	cycle, err := s.st.GetCycleByID(ctx, cycleID)
+	if err != nil {
+		return nil, err
+	}
+	if cycle.Campaign_id != campaign.ID {
+		return nil, errors.New("cycle_campaign_mismatch")
+	}
+	assignments, err := s.st.ListAssignedTalents(ctx, cycleID)
+	if err != nil {
+		return nil, err
+	}
+	links, err := s.st.ListTrackingLinksByCycle(ctx, cycleID)
+	if err != nil {
+		return nil, err
+	}
+	payouts, err := s.st.ListPayoutsByCycle(ctx, cycleID)
+	if err != nil {
+		return nil, err
+	}
+
+	linksByTalent := make(map[string]store.TrackingLink, len(links))
+	for _, link := range links {
+		existing, exists := linksByTalent[link.Talent_id]
+		if !exists || (!existing.Active && link.Active) {
+			linksByTalent[link.Talent_id] = link
+		}
+	}
+	payoutsByTalent := make(map[string]store.PayoutRecord, len(payouts))
+	for _, payout := range payouts {
+		payoutsByTalent[payout.Talent_id] = payout
+	}
+
+	views := make([]HumanAssignmentView, 0, len(assignments))
+	for _, assignment := range assignments {
+		talent, err := s.st.GetTalentByID(ctx, assignment.Talent_id)
+		if err != nil {
+			return nil, err
+		}
+		user, err := s.st.GetUserByID(ctx, talent.User_id)
+		if err != nil {
+			return nil, err
+		}
+		conversions, err := s.st.GetTalentConversions(ctx, talent.ID, cycleID)
+		if err != nil {
+			return nil, err
+		}
+		skills := talent.Skills
+		if skills == nil {
+			skills = []string{}
+		}
+		var trackingLink *AssignmentTrackingLink
+		if link, ok := linksByTalent[talent.ID]; ok {
+			trackingLink = &AssignmentTrackingLink{
+				Token: link.Token, URL: "/t/" + link.Token, Active: link.Active,
+			}
+		}
+		payout, hasPayout := payoutsByTalent[talent.ID]
+		paymentStatus := store.Payout_pending
+		totalEarned := 0.0
+		allocatedBudget := float64(assignment.Effective_tier)
+		if hasPayout {
+			paymentStatus = payout.Status
+			totalEarned = payout.Final_payout
+			if payout.Allocated_budget > 0 {
+				allocatedBudget = payout.Allocated_budget
+			}
+		}
+		views = append(views, HumanAssignmentView{
+			TalentID: talent.ID,
+			Human: AssignmentHuman{
+				UserID: user.ID, FullName: user.Full_name, Email: user.Email,
+				PhoneNumber: user.Phone_number, AvatarURL: user.Avatar_url,
+				Category: talent.Category, Status: talent.Status, Skills: skills,
+				RatePerDay: talent.Rate_per_day, ReportCompliance: talent.Report_compliance,
+			},
+			Assignment: AssignmentSummary{
+				RoleLabel: assignment.Role_label, Status: assignment.Status,
+				AssignmentSource: assignment.Assignment_source, PDCMode: assignment.PDC_mode,
+				PDCValue: assignment.PDC_value, EffectiveTier: assignment.Effective_tier,
+				AssignedAt: assignment.Assigned_at,
+			},
+			TrackingLink: trackingLink,
+			Campaign: AssignmentCampaign{
+				ID: campaign.ID, HumanID: campaign.Human_id, Name: campaign.Name,
+				Status: campaign.Status, Type: campaign.Campaign_type,
+				TotalBudget: campaign.Total_budget, TargetCPA: campaign.Target_cpa, MaxCPA: campaign.Max_cpa,
+			},
+			Cycle: AssignmentCycle{
+				ID: cycle.ID, HumanID: cycle.Human_id, CycleNumber: cycle.Cycle_number,
+				Status: cycle.Status, CycleLength: campaign.Cycle_length,
+				CycleBudget: cycle.Cycle_budget, AllocatedBudget: allocatedBudget,
+				StartDate: cycle.Start_date, EndDate: cycle.End_date,
+			},
+			Performance: AssignmentPerformance{
+				AOC: conversions, Conversions: conversions, MatchScore: assignment.Match_score,
+				MatchDM: assignment.Match_dm, MatchGP: assignment.Match_gp, MatchOH: assignment.Match_oh,
+			},
+			Earnings: AssignmentEarnings{TotalEarned: totalEarned, PaymentStatus: paymentStatus},
+		})
+	}
+	return views, nil
+}
+
 // ConfirmAssignments persists solver output with full allocation audit fields.
 func (s *AssignmentService) ConfirmAssignments(
 	ctx context.Context,

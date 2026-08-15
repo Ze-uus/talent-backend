@@ -346,15 +346,18 @@ func (s *AdminService) ListTalents(ctx context.Context, filter store.TalentFilte
 	}
 	items := make([]TalentListItem, 0, len(talents))
 	var (
-		activeCount int
+		activeCount   int
 		complianceSum float64
-		earnings    float64
+		earnings      float64
 	)
 	for _, t := range talents {
 		item := TalentListItem{Talent: t}
 		if u, err := s.st.GetUserByID(ctx, t.User_id); err == nil {
 			item.Full_name = u.Full_name
 			item.Email = u.Email
+			item.Phone_number = u.Phone_number
+			item.Avatar_url = u.Avatar_url
+			item.User = safeUserView(u)
 		}
 		items = append(items, item)
 		if t.Status == store.Status_active {
@@ -383,6 +386,98 @@ func (s *AdminService) ListTalents(ctx context.Context, filter store.TalentFilte
 		},
 		Talents: items,
 	}, nil
+}
+
+func (s *AdminService) GetTalentDetail(ctx context.Context, id string) (TalentDetail, error) {
+	talent, err := s.resolveTalent(ctx, id)
+	if err != nil {
+		return TalentDetail{}, err
+	}
+	user, err := s.st.GetUserByID(ctx, talent.User_id)
+	if err != nil {
+		return TalentDetail{}, err
+	}
+	assignments, err := s.st.ListAssignmentsByTalent(ctx, talent.ID)
+	if err != nil {
+		return TalentDetail{}, err
+	}
+	payouts, err := s.st.ListPayoutsByTalent(ctx, talent.ID)
+	if err != nil {
+		return TalentDetail{}, err
+	}
+
+	assignmentViews := make([]TalentAssignmentSummary, 0, len(assignments))
+	activeAssignments := 0
+	totalConversions := 0.0
+	matchScoreSum := 0.0
+	for _, assignment := range assignments {
+		if assignment.Status == "active" {
+			activeAssignments++
+		}
+		matchScoreSum += assignment.Match_score
+		if conversions, err := s.st.GetTalentConversions(ctx, talent.ID, assignment.Cycle_id); err == nil {
+			totalConversions += conversions
+		}
+		assignmentViews = append(assignmentViews, TalentAssignmentSummary{
+			CampaignID: assignment.Campaign_id, CycleID: assignment.Cycle_id,
+			RoleLabel: assignment.Role_label, Status: assignment.Status,
+			EffectiveTier: assignment.Effective_tier, MatchScore: assignment.Match_score,
+			AssignedAt: assignment.Assigned_at,
+		})
+	}
+
+	payoutViews := make([]TalentPayoutSummary, 0, len(payouts))
+	totalEarned := 0.0
+	totalPaid := 0.0
+	for _, payout := range payouts {
+		totalEarned += payout.Final_payout
+		if payout.Status == store.Payout_paid {
+			totalPaid += payout.Final_payout
+		}
+		payoutViews = append(payoutViews, TalentPayoutSummary{
+			CampaignID: payout.Campaign_id, CycleID: payout.Cycle_id,
+			Status: payout.Status, FinalPayout: payout.Final_payout, PaidAt: payout.Paid_at,
+		})
+	}
+	averageMatchScore := 0.0
+	if len(assignments) > 0 {
+		averageMatchScore = matchScoreSum / float64(len(assignments))
+	}
+
+	return TalentDetail{
+		Talent: talentView(talent),
+		User:   safeUserView(user),
+		Stats: TalentDetailStats{
+			TotalAssignments: len(assignments), ActiveAssignments: activeAssignments,
+			TotalConversions: totalConversions, AverageMatchScore: averageMatchScore,
+			TotalEarned: totalEarned, TotalPaid: totalPaid,
+		},
+		Assignments: assignmentViews,
+		Payouts:     payoutViews,
+	}, nil
+}
+
+func safeUserView(user store.User) SafeUserView {
+	return SafeUserView{
+		ID: user.ID, Email: user.Email, FullName: user.Full_name,
+		PhoneNumber: user.Phone_number, AvatarURL: user.Avatar_url,
+		Role: user.Role, Provider: user.Provider, Status: user.Status, Active: user.Active,
+		CreatedAt: user.Created_at, UpdatedAt: user.Updated_at,
+	}
+}
+
+func talentView(talent store.Talent) TalentView {
+	skills := talent.Skills
+	if skills == nil {
+		skills = []string{}
+	}
+	return TalentView{
+		ID: talent.ID, UserID: talent.User_id, Category: talent.Category,
+		Status: talent.Status, Skills: skills, RatePerDay: talent.Rate_per_day,
+		MaxTier: talent.Max_tier, Bio: talent.Bio, PortfolioURL: talent.Portfolio_url,
+		ReportCompliance: talent.Report_compliance,
+		CreatedAt:        talent.Created_at, UpdatedAt: talent.Updated_at,
+	}
 }
 
 // ─── Viewer management ────────────────────────────────────────────────────────

@@ -2,11 +2,15 @@ package campaign
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/go-chi/chi/v5"
 
 	"github.com/Ze-uus/talent-backend/internal/ctxkeys"
+	"github.com/Ze-uus/talent-backend/internal/media"
 	"github.com/Ze-uus/talent-backend/internal/response"
 	"github.com/Ze-uus/talent-backend/internal/store"
 )
@@ -36,14 +40,15 @@ func (h *handler) registerCampaigns(api huma.API) {
 		Tags:        []string{"campaigns"},
 	}, func(ctx context.Context, in *struct {
 		Body struct {
-			Brand_id      string  `json:"brand_id"`
-			Name          string  `json:"name"`
-			Campaign_type string  `json:"campaign_type"`
-			Total_budget  float64 `json:"total_budget"`
-			Target_cpa    float64 `json:"target_cpa"`
-			Max_cpa       float64 `json:"max_cpa"`
-			Audience      string  `json:"audience"`
-			Cycle_length  int     `json:"cycle_length"`
+			Brand_id      string              `json:"brand_id"`
+			Name          string              `json:"name"`
+			Campaign_type string              `json:"campaign_type"`
+			Total_budget  float64             `json:"total_budget"`
+			Target_cpa    float64             `json:"target_cpa"`
+			Max_cpa       float64             `json:"max_cpa"`
+			Audience      string              `json:"audience"`
+			Cycle_length  int                 `json:"cycle_length"`
+			Content       []store.ContentItem `json:"content"`
 		}
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
@@ -58,9 +63,13 @@ func (h *handler) registerCampaigns(api huma.API) {
 			Max_cpa:       in.Body.Max_cpa,
 			Audience:      in.Body.Audience,
 			Cycle_length:  in.Body.Cycle_length,
+			Content:       in.Body.Content,
 		}
 		created, err := h.svc.Create(ctx, c)
 		if err != nil {
+			if isContentValidationError(err) {
+				return &std_output{Status: http.StatusUnprocessableEntity, Body: response.Fail(err.Error())}, nil
+			}
 			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(created, "campaign_created")}, nil
@@ -135,11 +144,12 @@ func (h *handler) registerCampaigns(api huma.API) {
 	}, func(ctx context.Context, in *struct {
 		ID   string `path:"id"`
 		Body struct {
-			Name             *string `json:"name,omitempty"`
-			Status           *string `json:"status,omitempty"`
-			Urgency_level    *string `json:"urgency_level,omitempty"`
-			Cycle_length     *int    `json:"cycle_length,omitempty"`
-			Creators_allowed *bool   `json:"creators_allowed,omitempty"`
+			Name             *string              `json:"name,omitempty"`
+			Status           *string              `json:"status,omitempty"`
+			Urgency_level    *string              `json:"urgency_level,omitempty"`
+			Cycle_length     *int                 `json:"cycle_length,omitempty"`
+			Creators_allowed *bool                `json:"creators_allowed,omitempty"`
+			Content          *[]store.ContentItem `json:"content,omitempty"`
 		}
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
@@ -151,8 +161,12 @@ func (h *handler) registerCampaigns(api huma.API) {
 			Urgency_level:    in.Body.Urgency_level,
 			Cycle_length:     in.Body.Cycle_length,
 			Creators_allowed: in.Body.Creators_allowed,
+			Content:          in.Body.Content,
 		}
 		if err := h.svc.Patch(ctx, in.ID, patch); err != nil {
+			if isContentValidationError(err) {
+				return &std_output{Status: http.StatusUnprocessableEntity, Body: response.Fail(err.Error())}, nil
+			}
 			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "campaign_updated")}, nil
@@ -228,23 +242,28 @@ func (h *handler) registerCycles(api huma.API) {
 	}, func(ctx context.Context, in *struct {
 		ID   string `path:"id"`
 		Body struct {
-			Cycle_budget    float64 `json:"cycle_budget"`
-			Cycle_objective string  `json:"cycle_objective"`
-			End_date        *string `json:"end_date,omitempty"`
+			Cycle_budget     float64              `json:"cycle_budget"`
+			Cycle_objective  string               `json:"cycle_objective"`
+			End_date         *string              `json:"end_date,omitempty"`
+			Content_override *[]store.ContentItem `json:"content_override,omitempty"`
 		}
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
 			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		c := store.Cycle{
-			Campaign_id:     in.ID,
-			Cycle_budget:    in.Body.Cycle_budget,
-			Cycle_objective: in.Body.Cycle_objective,
+			Campaign_id:      in.ID,
+			Cycle_budget:     in.Body.Cycle_budget,
+			Cycle_objective:  in.Body.Cycle_objective,
+			Content_override: in.Body.Content_override,
 		}
 		created, err := h.svc.CreateCycle(ctx, c)
 		if err != nil {
 			switch err.Error() {
 			case "invalid_campaign_cpa", "target_cpa_exceeds_max_cpa", "cycle_budget_below_target_cpa":
+				return &std_output{Status: http.StatusUnprocessableEntity, Body: response.Fail(err.Error())}, nil
+			}
+			if isContentValidationError(err) {
 				return &std_output{Status: http.StatusUnprocessableEntity, Body: response.Fail(err.Error())}, nil
 			}
 			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
@@ -313,20 +332,30 @@ func (h *handler) registerCycles(api huma.API) {
 		ID   string `path:"id"`
 		Cid  string `path:"cid"`
 		Body struct {
-			Cycle_budget    *float64 `json:"cycle_budget,omitempty"`
-			Cycle_objective *string  `json:"cycle_objective,omitempty"`
-			Z_factor        *float64 `json:"z_factor,omitempty"`
+			Cycle_budget     *float64             `json:"cycle_budget,omitempty"`
+			Cycle_objective  *string              `json:"cycle_objective,omitempty"`
+			Z_factor         *float64             `json:"z_factor,omitempty"`
+			Content_override *[]store.ContentItem `json:"content_override,omitempty"`
+			Inherit_content  bool                 `json:"inherit_content,omitempty"`
 		}
 	}) (*std_output, error) {
 		if !isAdminOrAbove(ctx) {
 			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		patch := store.CyclePatch{
-			Cycle_budget:    in.Body.Cycle_budget,
-			Cycle_objective: in.Body.Cycle_objective,
-			Z_factor:        in.Body.Z_factor,
+			Cycle_budget:     in.Body.Cycle_budget,
+			Cycle_objective:  in.Body.Cycle_objective,
+			Z_factor:         in.Body.Z_factor,
+			Content_override: in.Body.Content_override,
+		}
+		if in.Body.Inherit_content {
+			var inherit []store.ContentItem
+			patch.Content_override = &inherit
 		}
 		if err := h.svc.PatchCycle(ctx, in.Cid, patch); err != nil {
+			if isContentValidationError(err) {
+				return &std_output{Status: http.StatusUnprocessableEntity, Body: response.Fail(err.Error())}, nil
+			}
 			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "cycle_updated")}, nil
@@ -407,4 +436,86 @@ func managerOwnsCampaign(ctx context.Context, st store.Store, manager_id, campai
 		}
 	}
 	return false
+}
+
+func isContentValidationError(err error) bool {
+	switch err.Error() {
+	case "too_many_content_items",
+		"content_item_id_required",
+		"duplicate_content_item_id",
+		"content_html_not_allowed",
+		"too_many_content_images",
+		"too_many_content_links",
+		"invalid_content_image_url",
+		"content_link_id_required",
+		"duplicate_content_link_id",
+		"invalid_content_link_url":
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *handler) uploadContentImagesHTTP(w http.ResponseWriter, r *http.Request) {
+	if !isAdminOrAbove(r.Context()) {
+		response.WriteJSON(w, http.StatusForbidden, response.Fail(response.ErrInsufficientRole))
+		return
+	}
+	campaignID := chi.URLParam(r, "id")
+	if campaignID == "" {
+		response.WriteJSON(w, http.StatusBadRequest, response.Fail("id_required"))
+		return
+	}
+	maxBodyBytes := int64(MaxCampaignImagesPerUpload)*media.MaxImageBytes + (1 << 20)
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	if err := r.ParseMultipartForm(int64(MaxCampaignImagesPerUpload) * media.MaxImageBytes); err != nil {
+		response.WriteJSON(w, http.StatusBadRequest, response.Fail("invalid_multipart_form"))
+		return
+	}
+	headers := r.MultipartForm.File["images"]
+	if len(headers) == 0 {
+		response.WriteJSON(w, http.StatusBadRequest, response.Fail("content_images_required"))
+		return
+	}
+	if len(headers) > MaxCampaignImagesPerUpload {
+		response.WriteJSON(w, http.StatusBadRequest, response.Fail("too_many_content_images"))
+		return
+	}
+
+	files := make([]ContentImageFile, 0, len(headers))
+	closers := make([]io.Closer, 0, len(headers))
+	defer func() {
+		for _, closer := range closers {
+			_ = closer.Close()
+		}
+	}()
+	for _, header := range headers {
+		if header.Size <= 0 || header.Size > media.MaxImageBytes {
+			response.WriteJSON(w, http.StatusBadRequest, response.Fail(media.ErrTooLarge.Error()))
+			return
+		}
+		file, err := header.Open()
+		if err != nil {
+			response.WriteJSON(w, http.StatusBadRequest, response.Fail("invalid_image"))
+			return
+		}
+		closers = append(closers, file)
+		files = append(files, ContentImageFile{
+			Body: file, ContentType: header.Header.Get("Content-Type"), Size: header.Size,
+		})
+	}
+
+	urls, err := h.svc.UploadContentImages(r.Context(), campaignID, files)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, media.ErrInvalidType) || errors.Is(err, media.ErrTooLarge) {
+			status = http.StatusBadRequest
+		}
+		if errors.Is(err, media.ErrNotConfigured) {
+			status = http.StatusBadGateway
+		}
+		response.WriteJSON(w, status, response.Fail(err.Error()))
+		return
+	}
+	response.WriteJSON(w, http.StatusOK, response.Ok(map[string]any{"images": urls}, "content_images_uploaded"))
 }

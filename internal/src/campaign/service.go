@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/Ze-uus/talent-backend/internal/audit"
 	"github.com/Ze-uus/talent-backend/internal/domain"
 	"github.com/Ze-uus/talent-backend/internal/mail"
+	"github.com/Ze-uus/talent-backend/internal/media"
 	payoutsvc "github.com/Ze-uus/talent-backend/internal/src/payout"
 	"github.com/Ze-uus/talent-backend/internal/store"
 	ws "github.com/Ze-uus/talent-backend/internal/websocket"
@@ -25,10 +27,57 @@ type CampaignService struct {
 	log             *slog.Logger
 	mail            *mail.Service
 	auditor         *audit.Recorder
+	media           media.Uploader
 }
 
-func New(s store.Store, p *payoutsvc.PayoutService, cycle_update_ch chan<- domain.CycleUpdateEvent, log *slog.Logger, mailSvc *mail.Service, auditor *audit.Recorder) *CampaignService {
-	return &CampaignService{st: s, payout: p, cycle_update_ch: cycle_update_ch, log: log, mail: mailSvc, auditor: auditor}
+func New(s store.Store, p *payoutsvc.PayoutService, cycle_update_ch chan<- domain.CycleUpdateEvent, log *slog.Logger, mailSvc *mail.Service, auditor *audit.Recorder, uploader media.Uploader) *CampaignService {
+	if uploader == nil {
+		uploader = media.DisabledUploader{}
+	}
+	return &CampaignService{st: s, payout: p, cycle_update_ch: cycle_update_ch, log: log, mail: mailSvc, auditor: auditor, media: uploader}
+}
+
+const MaxCampaignImagesPerUpload = 10
+
+type ContentImageFile struct {
+	Body        io.Reader
+	ContentType string
+	Size        int64
+}
+
+func (s *CampaignService) UploadContentImages(ctx context.Context, campaignID string, files []ContentImageFile) ([]string, error) {
+	if _, err := s.st.GetCampaignByID(ctx, campaignID); err != nil {
+		return nil, err
+	}
+	if len(files) == 0 {
+		return nil, errors.New("content_images_required")
+	}
+	if len(files) > MaxCampaignImagesPerUpload {
+		return nil, errors.New("too_many_content_images")
+	}
+
+	urls := make([]string, 0, len(files))
+	for _, file := range files {
+		if file.Size <= 0 || file.Size > media.MaxImageBytes {
+			return nil, media.ErrTooLarge
+		}
+		if err := media.ValidateContentType(file.ContentType); err != nil {
+			return nil, err
+		}
+		fileName, err := media.NewFileName(uuid.NewString(), file.ContentType)
+		if err != nil {
+			return nil, err
+		}
+		result, err := s.media.Upload(ctx, media.UploadInput{
+			Folder: media.FolderCampaignContent(campaignID), FileName: fileName,
+			ContentType: file.ContentType, Body: file.Body,
+		})
+		if err != nil {
+			return nil, err
+		}
+		urls = append(urls, result.URL)
+	}
+	return urls, nil
 }
 
 func (s *CampaignService) emitCycleUpdate(ctx context.Context, cycle store.Cycle, update_type string) {
@@ -54,6 +103,11 @@ func (s *CampaignService) emitCycleUpdate(ctx context.Context, cycle store.Cycle
 // ─── Campaign CRUD ────────────────────────────────────────────────────────────
 
 func (s *CampaignService) Create(ctx context.Context, c store.Campaign) (store.Campaign, error) {
+	content, err := store.NormalizeAndValidateContent(c.Content)
+	if err != nil {
+		return store.Campaign{}, err
+	}
+	c.Content = content
 	human_id, err := s.st.NextCampaignHumanID(ctx, c.Brand_id)
 	if err != nil {
 		return store.Campaign{}, err
@@ -116,6 +170,13 @@ func (s *CampaignService) Get(ctx context.Context, id string) (CampaignDetail, e
 }
 
 func (s *CampaignService) Patch(ctx context.Context, id string, patch store.CampaignPatch) error {
+	if patch.Content != nil {
+		content, err := store.NormalizeAndValidateContent(*patch.Content)
+		if err != nil {
+			return err
+		}
+		patch.Content = &content
+	}
 	prev, _ := s.st.GetCampaignByID(ctx, id)
 	if err := s.st.UpdateCampaign(ctx, id, patch); err != nil {
 		return err
@@ -182,6 +243,13 @@ func (s *CampaignService) UnassignManager(ctx context.Context, manager_id, campa
 
 // CreateCycle runs the waterfall algorithm and persists budget slots.
 func (s *CampaignService) CreateCycle(ctx context.Context, c store.Cycle) (store.Cycle, error) {
+	if c.Content_override != nil {
+		content, err := store.NormalizeAndValidateContent(*c.Content_override)
+		if err != nil {
+			return store.Cycle{}, err
+		}
+		c.Content_override = &content
+	}
 	campaign, err := s.st.GetCampaignByID(ctx, c.Campaign_id)
 	if err != nil {
 		return store.Cycle{}, err
@@ -262,6 +330,13 @@ func (s *CampaignService) GetCycle(ctx context.Context, id string) (store.Cycle,
 }
 
 func (s *CampaignService) PatchCycle(ctx context.Context, id string, patch store.CyclePatch) error {
+	if patch.Content_override != nil && *patch.Content_override != nil {
+		content, err := store.NormalizeAndValidateContent(*patch.Content_override)
+		if err != nil {
+			return err
+		}
+		patch.Content_override = &content
+	}
 	if err := s.st.UpdateCycle(ctx, id, patch); err != nil {
 		return err
 	}

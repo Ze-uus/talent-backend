@@ -53,9 +53,9 @@ func (h *handler) register(api huma.API) {
 		ID   string `path:"id"`
 		Cid  string `path:"cid"`
 		Body struct {
-			Confirmed    []ConfirmedAssignment `json:"confirmed"`
-			Solver_output SolverOutput         `json:"solver_output"`
-			Is_override  bool                  `json:"is_override"`
+			Confirmed     []ConfirmedAssignment `json:"confirmed"`
+			Solver_output SolverOutput          `json:"solver_output"`
+			Is_override   bool                  `json:"is_override"`
 		}
 	}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
@@ -82,7 +82,7 @@ func (h *handler) register(api huma.API) {
 		if !isAdminOrAbove(ctx) {
 			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
-		assignments, err := h.svc.st.ListAssignedTalents(ctx, in.Cid)
+		assignments, err := h.svc.ListCycleAssignments(ctx, in.ID, in.Cid)
 		if err != nil {
 			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}

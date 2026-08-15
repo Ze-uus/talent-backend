@@ -2,6 +2,7 @@ package talent
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -110,14 +111,14 @@ func (h *handler) register(api huma.API) {
 		if err != nil {
 			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		assignment, link, err := h.svc.GetMyCycle(ctx, talent.ID, in.Cid)
+		view, err := h.svc.GetMyCycle(ctx, talent.ID, in.Cid)
 		if err != nil {
+			if errors.Is(err, ErrCycleNotAssigned) {
+				return &std_output{Status: http.StatusNotFound, Body: response.Fail(response.ErrNotFound)}, nil
+			}
 			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
-		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]any{
-			"assignment":    assignment,
-			"tracking_link": link,
-		}, "ok")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(view, "ok")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -139,6 +140,9 @@ func (h *handler) register(api huma.API) {
 		}
 		stats, err := h.svc.GetCycleStats(ctx, talent.ID, in.Cid)
 		if err != nil {
+			if errors.Is(err, ErrCycleNotAssigned) {
+				return &std_output{Status: http.StatusNotFound, Body: response.Fail(response.ErrNotFound)}, nil
+			}
 			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(stats, "ok")}, nil
@@ -162,6 +166,9 @@ func (h *handler) register(api huma.API) {
 			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
 		if err := h.svc.RequestExpansion(ctx, talent.ID, in.Cid, u.ID); err != nil {
+			if errors.Is(err, ErrCycleNotAssigned) {
+				return &std_output{Status: http.StatusNotFound, Body: response.Fail(response.ErrNotFound)}, nil
+			}
 			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "expansion_requested")}, nil

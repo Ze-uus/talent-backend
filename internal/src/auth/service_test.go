@@ -29,7 +29,7 @@ type mockStore struct {
 	byViewer map[string]string // viewer_token → brand_contact.id
 
 	brand_contacts map[string]store.BrandContact // keyed by id
-	talents        map[string]store.Talent        // keyed by user_id
+	talents        map[string]store.Talent       // keyed by user_id
 }
 
 func newMock() *mockStore {
@@ -994,7 +994,7 @@ func TestLogin_Invited_ReturnsAccountInvited(t *testing.T) {
 func TestRegisterTalent_CreatesUserAndTalent(t *testing.T) {
 	m := newMock()
 	svc := newSvc(m)
-	if err := svc.RegisterTalent(context.Background(), "franklin@test.com", "password123", "Franklin"); err != nil {
+	if err := svc.RegisterTalent(context.Background(), "franklin@test.com", "password123", "Franklin", "+2348012345678"); err != nil {
 		t.Fatal(err)
 	}
 	u, err := m.GetUserByEmail(context.Background(), "franklin@test.com")
@@ -1003,6 +1003,9 @@ func TestRegisterTalent_CreatesUserAndTalent(t *testing.T) {
 	}
 	if u.Role != store.Role_talent || u.Status != store.User_status_pending {
 		t.Fatalf("user=%+v", u)
+	}
+	if u.Phone_number != "+2348012345678" {
+		t.Fatalf("phone_number=%q", u.Phone_number)
 	}
 	talent, err := m.GetTalentByUserID(context.Background(), u.ID)
 	if err != nil {
@@ -1015,4 +1018,3 @@ func TestRegisterTalent_CreatesUserAndTalent(t *testing.T) {
 		t.Fatalf("talent ids=%+v", talent)
 	}
 }
-

@@ -102,8 +102,12 @@ REST companions: `GET /admin/audit`, `GET /admin/audit/{id}`, `GET /admin/audit/
 
 ### `conversion`
 
-**Producer:** `POST /track/{token}` after successful DB write  
+**Producer:** `POST /t/{token}` after successful DB write
 **Recipients:** Admin (all talents in cycle) + matching talent client
+
+`GET /t/{token}` only returns public campaign presentation content. It does not
+record a conversion or emit a WebSocket event, which prevents browser previews
+and prefetches from inflating tracking totals.
 
 **Payload:**
 

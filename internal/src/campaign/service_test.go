@@ -1,15 +1,18 @@
 package campaign_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Ze-uus/talent-backend/internal/algo"
 	"github.com/Ze-uus/talent-backend/internal/domain"
+	"github.com/Ze-uus/talent-backend/internal/media"
 	"github.com/Ze-uus/talent-backend/internal/src/campaign"
 	"github.com/Ze-uus/talent-backend/internal/store"
 )
@@ -32,6 +35,14 @@ func (m *mockStore) UpdateCycle(_ context.Context, id string, patch store.CycleP
 	}
 	if patch.Status != nil {
 		m.cycle.Status = store.Cycle_status(*patch.Status)
+	}
+	if patch.Content_override != nil {
+		if *patch.Content_override == nil {
+			m.cycle.Content_override = nil
+		} else {
+			content := *patch.Content_override
+			m.cycle.Content_override = &content
+		}
 	}
 	return nil
 }
@@ -140,7 +151,10 @@ func (m *mockStore) ListCampaigns(_ context.Context, _ store.CampaignFilter) ([]
 	return nil, nil
 }
 func (m *mockStore) ListActiveCampaigns(_ context.Context) ([]store.Campaign, error) { return nil, nil }
-func (m *mockStore) UpdateCampaign(_ context.Context, _ string, _ store.CampaignPatch) error {
+func (m *mockStore) UpdateCampaign(_ context.Context, id string, patch store.CampaignPatch) error {
+	if m.campaign.ID == id && patch.Content != nil {
+		m.campaign.Content = *patch.Content
+	}
 	return nil
 }
 func (m *mockStore) DecrementRemainingBudget(_ context.Context, _ string, _ float64) error {
@@ -293,7 +307,7 @@ func TestCloseCycle_EmitsCycleUpdate(t *testing.T) {
 		Status:           store.Cycle_active,
 		Remaining_budget: 1200,
 	}}
-	svc := campaign.New(ms, nil, ch, slog.New(slog.NewTextHandler(os.Stderr, nil)), nil, nil)
+	svc := campaign.New(ms, nil, ch, slog.New(slog.NewTextHandler(os.Stderr, nil)), nil, nil, nil)
 
 	if err := svc.CloseCycle(context.Background(), "cycle-1"); err != nil {
 		t.Fatalf("CloseCycle error: %v", err)
@@ -315,7 +329,7 @@ func TestCloseCycle_EmitsCycleUpdate(t *testing.T) {
 func TestCreate_LooksUpBrandByUUID(t *testing.T) {
 	brandID := "28f52e45-49d5-4585-b9ff-95c8aaf0699c"
 	ms := &mockStore{}
-	svc := campaign.New(ms, nil, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)), nil, nil)
+	svc := campaign.New(ms, nil, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)), nil, nil, nil)
 
 	created, err := svc.Create(context.Background(), store.Campaign{
 		Brand_id:      brandID,
@@ -326,6 +340,10 @@ func TestCreate_LooksUpBrandByUUID(t *testing.T) {
 		Max_cpa:       15_000_000,
 		Audience:      "all,state:Enugu,zone:SE",
 		Cycle_length:  7,
+		Content: []store.ContentItem{{
+			ID: "hero", Images: []string{"https://cdn.example.com/hero.png"},
+			Links: []store.ContentLink{},
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -351,6 +369,9 @@ func TestCreate_LooksUpBrandByUUID(t *testing.T) {
 	if ms.createdCampaign.Start_date.IsZero() || ms.createdCampaign.End_date.IsZero() {
 		t.Fatal("expected start/end dates set")
 	}
+	if len(ms.createdCampaign.Content) != 1 || ms.createdCampaign.Content[0].ID != "hero" {
+		t.Fatalf("content was not persisted: %+v", ms.createdCampaign.Content)
+	}
 }
 
 func TestGet_IncludesCampaignManagers(t *testing.T) {
@@ -363,7 +384,7 @@ func TestGet_IncludesCampaignManagers(t *testing.T) {
 			{ID: "mgr-1", Email: "mgr@scaloo.com", Full_name: "Ada Manager", Role: store.Role_campaign_manager, Status: store.User_status_active, Active: true},
 		},
 	}
-	svc := campaign.New(ms, nil, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)), nil, nil)
+	svc := campaign.New(ms, nil, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)), nil, nil, nil)
 	detail, err := svc.Get(context.Background(), "camp-1")
 	if err != nil {
 		t.Fatal(err)
@@ -392,11 +413,13 @@ func TestCreateCycle_SetsIDAndNumber(t *testing.T) {
 		},
 		cycles: []store.Cycle{},
 	}
-	svc := campaign.New(ms, nil, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)), nil, nil)
+	svc := campaign.New(ms, nil, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)), nil, nil, nil)
+	override := []store.ContentItem{{ID: "cycle-hero", Images: []string{}, Links: []store.ContentLink{}}}
 	created, err := svc.CreateCycle(context.Background(), store.Cycle{
-		Campaign_id:     "camp-1",
-		Cycle_budget:    300000,
-		Cycle_objective: "traffic",
+		Campaign_id:      "camp-1",
+		Cycle_budget:     300000,
+		Cycle_objective:  "traffic",
+		Content_override: &override,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -418,5 +441,56 @@ func TestCreateCycle_SetsIDAndNumber(t *testing.T) {
 	}
 	if created.Z_factor != 1.0 {
 		t.Fatalf("z_factor=%v", created.Z_factor)
+	}
+	if created.Content_override == nil || len(*created.Content_override) != 1 {
+		t.Fatalf("expected cycle content override, got %+v", created.Content_override)
+	}
+}
+
+func TestPatchCycleClearsContentOverride(t *testing.T) {
+	override := []store.ContentItem{{ID: "override"}}
+	ms := &mockStore{cycle: store.Cycle{ID: "cycle-1", Content_override: &override}}
+	svc := campaign.New(ms, nil, nil, slog.Default(), nil, nil, nil)
+	var inherit []store.ContentItem
+
+	if err := svc.PatchCycle(context.Background(), "cycle-1", store.CyclePatch{Content_override: &inherit}); err != nil {
+		t.Fatal(err)
+	}
+	if ms.cycle.Content_override != nil {
+		t.Fatalf("expected override to be cleared, got %+v", ms.cycle.Content_override)
+	}
+}
+
+func TestUploadContentImagesPreservesOrder(t *testing.T) {
+	ms := &mockStore{campaign: store.Campaign{ID: "camp-1"}}
+	uploader := &media.RecordingUploader{}
+	svc := campaign.New(ms, nil, nil, slog.Default(), nil, nil, uploader)
+
+	files := []campaign.ContentImageFile{
+		{Body: bytes.NewReader([]byte("one")), ContentType: "image/png", Size: 3},
+		{Body: bytes.NewReader([]byte("two")), ContentType: "image/jpeg", Size: 3},
+	}
+	urls, err := svc.UploadContentImages(context.Background(), "camp-1", files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(urls) != 2 || !strings.HasSuffix(urls[0], ".png") || !strings.HasSuffix(urls[1], ".jpg") {
+		t.Fatalf("unexpected URLs: %+v", urls)
+	}
+	if len(uploader.Calls) != 2 || uploader.Calls[0].Folder != "/scaloo/campaigns/camp-1/content" {
+		t.Fatalf("unexpected upload calls: %+v", uploader.Calls)
+	}
+}
+
+func TestUploadContentImagesReturnsUploaderFailure(t *testing.T) {
+	ms := &mockStore{campaign: store.Campaign{ID: "camp-1"}}
+	uploader := &media.RecordingUploader{Err: media.ErrNotConfigured}
+	svc := campaign.New(ms, nil, nil, slog.Default(), nil, nil, uploader)
+
+	_, err := svc.UploadContentImages(context.Background(), "camp-1", []campaign.ContentImageFile{{
+		Body: bytes.NewReader([]byte("one")), ContentType: "image/png", Size: 3,
+	}})
+	if !errors.Is(err, media.ErrNotConfigured) {
+		t.Fatalf("expected uploader failure, got %v", err)
 	}
 }

@@ -52,12 +52,13 @@ func (h *handler) registerProfile(api huma.API) {
 		OperationID: "settings_patch_profile",
 		Method:      http.MethodPatch,
 		Path:        "/settings/profile",
-		Summary:     "Update name or avatar",
+		Summary:     "Update name, phone or avatar",
 		Tags:        []string{"settings"},
 	}, func(ctx context.Context, in *struct {
 		Body struct {
-			Full_name  *string `json:"full_name,omitempty"`
-			Avatar_url *string `json:"avatar_url,omitempty"`
+			Full_name    *string `json:"full_name,omitempty"`
+			Phone_number *string `json:"phone_number,omitempty"`
+			Avatar_url   *string `json:"avatar_url,omitempty"`
 		}
 	}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
@@ -65,8 +66,9 @@ func (h *handler) registerProfile(api huma.API) {
 			return &std_output{Status: 401, Body: response.Fail("unauthenticated")}, nil
 		}
 		patch := store.UserPatch{
-			Full_name:  in.Body.Full_name,
-			Avatar_url: in.Body.Avatar_url,
+			Full_name:    in.Body.Full_name,
+			Phone_number: in.Body.Phone_number,
+			Avatar_url:   in.Body.Avatar_url,
 		}
 		if err := h.svc.PatchProfile(ctx, u.ID, patch); err != nil {
 			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil

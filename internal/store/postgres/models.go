@@ -92,6 +92,7 @@ type Campaign struct {
 	EndDate         pgtype.Timestamptz
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
+	Content         []byte
 }
 
 type CampaignViewer struct {
@@ -139,6 +140,7 @@ type Cycle struct {
 	EndDate         pgtype.Timestamptz
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
+	ContentOverride []byte
 }
 
 type CycleReport struct {
@@ -312,6 +314,7 @@ type User struct {
 	UpdatedAt          pgtype.Timestamptz
 	Status             string
 	DeletedAt          pgtype.Timestamptz
+	PhoneNumber        string
 }
 
 type ViewerPassword struct {

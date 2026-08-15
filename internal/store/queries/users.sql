@@ -1,8 +1,8 @@
 -- name: CreateUser :exec
 INSERT INTO users (email, password_hash, role, provider, google_id, full_name,
-  avatar_url, totp_secret, totp_enabled, totp_verified, totp_last_verified_at,
+  phone_number, avatar_url, totp_secret, totp_enabled, totp_verified, totp_last_verified_at,
   invite_token, invite_expires_at, active, status, deleted_at)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16);
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17);
 
 -- name: GetUserByID :one
 SELECT * FROM users WHERE id = $1;

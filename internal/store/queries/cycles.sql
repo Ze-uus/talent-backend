@@ -1,7 +1,8 @@
 -- name: CreateCycle :exec
 INSERT INTO cycles (id, human_id, campaign_id, cycle_number, status, cycle_budget,
-  remaining_budget, cycle_objective, campaign_type, kpb_config, z_factor, start_date, end_date)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13);
+  remaining_budget, cycle_objective, campaign_type, kpb_config, content_override,
+  z_factor, start_date, end_date)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14);
 
 -- name: GetCycleByID :one
 SELECT * FROM cycles WHERE id = $1;

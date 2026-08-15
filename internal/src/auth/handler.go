@@ -56,12 +56,13 @@ func (h *handler) registerTalentAuth(api huma.API) {
 		Security:    []map[string][]string{},
 	}, func(ctx context.Context, in *struct {
 		Body struct {
-			Email     string `json:"email"`
-			Password  string `json:"password"`
-			Full_name string `json:"full_name"`
+			Email        string `json:"email"`
+			Password     string `json:"password"`
+			Full_name    string `json:"full_name"`
+			Phone_number string `json:"phone_number,omitempty"`
 		}
 	}) (*std_output, error) {
-		if err := h.svc.RegisterTalent(ctx, in.Body.Email, in.Body.Password, in.Body.Full_name); err != nil {
+		if err := h.svc.RegisterTalent(ctx, in.Body.Email, in.Body.Password, in.Body.Full_name, in.Body.Phone_number); err != nil {
 			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "registration_pending_approval")}, nil

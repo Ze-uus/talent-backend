@@ -167,7 +167,7 @@ func (a *AuthService) VerifyInvite(ctx context.Context, invite_token, password s
 
 // ─── Talent registration ──────────────────────────────────────────────────────
 
-func (a *AuthService) RegisterTalent(ctx context.Context, email, password, full_name string) error {
+func (a *AuthService) RegisterTalent(ctx context.Context, email, password, full_name, phone_number string) error {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt_cost)
 	if err != nil {
 		return err
@@ -176,6 +176,7 @@ func (a *AuthService) RegisterTalent(ctx context.Context, email, password, full_
 		Email:         email,
 		Password_hash: string(hash),
 		Full_name:     full_name,
+		Phone_number:  phone_number,
 		Role:          store.Role_talent,
 		Provider:      store.Provider_local,
 		Active:        true,

@@ -1,8 +1,8 @@
 -- name: CreateCampaign :exec
 INSERT INTO campaigns (id, human_id, brand_id, name, status, campaign_type,
   total_budget, remaining_budget, market_cap, audience, target_cpa, max_cpa,
-  urgency_level, cycle_length, creators_allowed, start_date, end_date)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17);
+  urgency_level, cycle_length, creators_allowed, content, start_date, end_date)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18);
 
 -- name: GetCampaignByID :one
 SELECT * FROM campaigns WHERE id = $1;

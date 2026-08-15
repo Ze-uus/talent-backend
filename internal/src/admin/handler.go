@@ -229,8 +229,11 @@ func (h *handler) registerTalents(api huma.API) {
 		if !isAdminOrAbove(ctx) {
 			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
-		t, err := h.svc.st.GetTalentByID(ctx, in.ID)
+		t, err := h.svc.GetTalentDetail(ctx, in.ID)
 		if err != nil {
+			if errors.Is(err, err_talent_not_found) {
+				return &std_output{Status: http.StatusNotFound, Body: response.Fail(response.ErrNotFound)}, nil
+			}
 			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(t, "ok")}, nil

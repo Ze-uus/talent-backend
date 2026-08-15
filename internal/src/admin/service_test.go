@@ -15,16 +15,22 @@ import (
 )
 
 type mockStore struct {
-	talents   map[string]store.Talent
-	users     map[string]store.User
-	baselines map[string]store.TalentBaseline
+	talents     map[string]store.Talent
+	users       map[string]store.User
+	baselines   map[string]store.TalentBaseline
+	assignments map[string][]store.TalentAssignment
+	payouts     map[string][]store.PayoutRecord
+	conversions map[string]float64
 }
 
 func newMock() *mockStore {
 	return &mockStore{
-		talents:   make(map[string]store.Talent),
-		users:     make(map[string]store.User),
-		baselines: make(map[string]store.TalentBaseline),
+		talents:     make(map[string]store.Talent),
+		users:       make(map[string]store.User),
+		baselines:   make(map[string]store.TalentBaseline),
+		assignments: make(map[string][]store.TalentAssignment),
+		payouts:     make(map[string][]store.PayoutRecord),
+		conversions: make(map[string]float64),
 	}
 }
 
@@ -173,28 +179,36 @@ func (m *mockStore) ListActiveCampaigns(_ context.Context) ([]store.Campaign, er
 func (m *mockStore) UpdateCampaign(_ context.Context, _ string, _ store.CampaignPatch) error {
 	return nil
 }
-func (m *mockStore) DecrementRemainingBudget(_ context.Context, _ string, _ float64) error { return nil }
-func (m *mockStore) NextCampaignHumanID(_ context.Context, _ string) (string, error)     { return "", nil }
+func (m *mockStore) DecrementRemainingBudget(_ context.Context, _ string, _ float64) error {
+	return nil
+}
+func (m *mockStore) NextCampaignHumanID(_ context.Context, _ string) (string, error) { return "", nil }
 func (m *mockStore) GetCampaignsByManagerID(_ context.Context, _ string) ([]store.Campaign, error) {
 	return nil, nil
 }
-func (m *mockStore) AssignManagerToCampaign(_ context.Context, _, _, _ string) error { return nil }
+func (m *mockStore) AssignManagerToCampaign(_ context.Context, _, _, _ string) error  { return nil }
 func (m *mockStore) UnassignManagerFromCampaign(_ context.Context, _, _ string) error { return nil }
-func (m *mockStore) ListManagersByCampaignID(_ context.Context, _ string) ([]store.User, error) { return nil, nil }
-func (m *mockStore) TryRecordEmailDispatch(_ context.Context, _, _, _, _ string) (bool, error) { return true, nil }
-func (m *mockStore) EmailDispatchExists(_ context.Context, _, _, _, _ string) (bool, error) { return false, nil }
+func (m *mockStore) ListManagersByCampaignID(_ context.Context, _ string) ([]store.User, error) {
+	return nil, nil
+}
+func (m *mockStore) TryRecordEmailDispatch(_ context.Context, _, _, _, _ string) (bool, error) {
+	return true, nil
+}
+func (m *mockStore) EmailDispatchExists(_ context.Context, _, _, _, _ string) (bool, error) {
+	return false, nil
+}
 
-func (m *mockStore) CreateCycle(_ context.Context, _ store.Cycle) error                { return nil }
+func (m *mockStore) CreateCycle(_ context.Context, _ store.Cycle) error { return nil }
 func (m *mockStore) GetCycleByID(_ context.Context, _ string) (store.Cycle, error) {
 	return store.Cycle{}, nil
 }
 func (m *mockStore) ListCyclesByCampaign(_ context.Context, _ string) ([]store.Cycle, error) {
 	return nil, nil
 }
-func (m *mockStore) GetActiveCycles(_ context.Context) ([]store.Cycle, error) { return nil, nil }
+func (m *mockStore) GetActiveCycles(_ context.Context) ([]store.Cycle, error)          { return nil, nil }
 func (m *mockStore) UpdateCycle(_ context.Context, _ string, _ store.CyclePatch) error { return nil }
 func (m *mockStore) CloseCycle(_ context.Context, _ string, _ float64) error           { return nil }
-func (m *mockStore) CreateBudgetSlots(_ context.Context, _ []store.BudgetSlot) error { return nil }
+func (m *mockStore) CreateBudgetSlots(_ context.Context, _ []store.BudgetSlot) error   { return nil }
 func (m *mockStore) ListSlotsByCycle(_ context.Context, _ string) ([]store.BudgetSlot, error) {
 	return nil, nil
 }
@@ -208,8 +222,8 @@ func (m *mockStore) GetAssignment(_ context.Context, _, _ string) (store.TalentA
 func (m *mockStore) ListAssignedTalents(_ context.Context, _ string) ([]store.TalentAssignment, error) {
 	return nil, nil
 }
-func (m *mockStore) ListAssignmentsByTalent(_ context.Context, _ string) ([]store.TalentAssignment, error) {
-	return nil, nil
+func (m *mockStore) ListAssignmentsByTalent(_ context.Context, talentID string) ([]store.TalentAssignment, error) {
+	return m.assignments[talentID], nil
 }
 func (m *mockStore) UpdateAssignment(_ context.Context, _, _ string, _ store.AssignmentPatch) error {
 	return nil
@@ -226,11 +240,13 @@ func (m *mockStore) GetDailyConversionCount(_ context.Context, _, _ string, _ ti
 	return 0, nil
 }
 func (m *mockStore) GetTotalConversions(_ context.Context, _ string) (float64, error) { return 0, nil }
-func (m *mockStore) GetTalentConversions(_ context.Context, _, _ string) (float64, error) {
-	return 0, nil
+func (m *mockStore) GetTalentConversions(_ context.Context, talentID, cycleID string) (float64, error) {
+	return m.conversions[talentID+":"+cycleID], nil
 }
-func (m *mockStore) FlagFallbackConversions(_ context.Context, _ string, _ time.Time) error { return nil }
-func (m *mockStore) LockFallbackConversions(_ context.Context, _ string) error               { return nil }
+func (m *mockStore) FlagFallbackConversions(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
+func (m *mockStore) LockFallbackConversions(_ context.Context, _ string) error { return nil }
 func (m *mockStore) GetCycleState(_ context.Context, _, _ string) (store.CycleState, error) {
 	return store.CycleState{}, nil
 }
@@ -274,8 +290,8 @@ func (m *mockStore) GetPayoutRecord(_ context.Context, _, _ string) (store.Payou
 func (m *mockStore) ListPayoutsByCycle(_ context.Context, _ string) ([]store.PayoutRecord, error) {
 	return nil, nil
 }
-func (m *mockStore) ListPayoutsByTalent(_ context.Context, _ string) ([]store.PayoutRecord, error) {
-	return nil, nil
+func (m *mockStore) ListPayoutsByTalent(_ context.Context, talentID string) ([]store.PayoutRecord, error) {
+	return m.payouts[talentID], nil
 }
 func (m *mockStore) UpdatePayoutRecord(_ context.Context, _ string, _ store.PayoutPatch) error {
 	return nil
@@ -300,7 +316,7 @@ func (m *mockStore) ListAuditLog(_ context.Context, _, _ string) ([]store.AuditL
 	return nil, nil
 }
 func (m *mockStore) ListAllTalents(_ context.Context) ([]store.Talent, error) { return nil, nil }
-func (m *mockStore) WriteAuditLog(_ context.Context, _ store.AuditLog) error    { return nil }
+func (m *mockStore) WriteAuditLog(_ context.Context, _ store.AuditLog) error  { return nil }
 
 func (m *mockStore) GetAuditLogByID(_ context.Context, _ string) (store.AuditLog, error) {
 	return store.AuditLog{}, nil
@@ -494,3 +510,39 @@ func TestApproveTalent_PreservesExistingBaseline(t *testing.T) {
 	}
 }
 
+func TestGetTalentDetail_ReturnsSafeUserStatsAssignmentsAndPayouts(t *testing.T) {
+	ms := newMock()
+	ms.users["user-1"] = store.User{
+		ID: "user-1", Email: "ada@example.com", Full_name: "Ada Human",
+		Phone_number: "+2348012345678", Avatar_url: "https://example.com/ada.jpg",
+		Role: store.Role_talent, Status: store.User_status_active, Active: true,
+	}
+	ms.talents["talent-1"] = store.Talent{
+		ID: "talent-1", User_id: "user-1", Status: store.Status_active,
+		Category: store.Category_micro, Skills: []string{"video"}, Report_compliance: 0.95,
+	}
+	ms.assignments["talent-1"] = []store.TalentAssignment{
+		{Talent_id: "talent-1", Campaign_id: "campaign-1", Cycle_id: "cycle-1", Status: "active", Match_score: 0.8},
+		{Talent_id: "talent-1", Campaign_id: "campaign-2", Cycle_id: "cycle-2", Status: "completed", Match_score: 1},
+	}
+	ms.conversions["talent-1:cycle-1"] = 8
+	ms.conversions["talent-1:cycle-2"] = 4
+	ms.payouts["talent-1"] = []store.PayoutRecord{
+		{Campaign_id: "campaign-1", Cycle_id: "cycle-1", Status: store.Payout_paid, Final_payout: 1000},
+		{Campaign_id: "campaign-2", Cycle_id: "cycle-2", Status: store.Payout_approved, Final_payout: 500},
+	}
+
+	svc := admin.New(ms, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)), nil, nil, 0.97)
+	detail, err := svc.GetTalentDetail(context.Background(), "talent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.User.PhoneNumber != "+2348012345678" || detail.User.FullName != "Ada Human" {
+		t.Fatalf("user=%+v", detail.User)
+	}
+	if detail.Stats.TotalAssignments != 2 || detail.Stats.ActiveAssignments != 1 ||
+		detail.Stats.TotalConversions != 12 || detail.Stats.TotalEarned != 1500 ||
+		detail.Stats.TotalPaid != 1000 {
+		t.Fatalf("stats=%+v", detail.Stats)
+	}
+}

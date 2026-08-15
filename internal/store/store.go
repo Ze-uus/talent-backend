@@ -156,6 +156,7 @@ type Store interface {
 
 type UserPatch struct {
 	Full_name             *string
+	Phone_number          *string
 	Avatar_url            *string
 	Password_hash         *string
 	Totp_secret           *string
@@ -205,14 +206,16 @@ type CampaignPatch struct {
 	Cycle_length     *int
 	End_date         *time.Time
 	Creators_allowed *bool
+	Content          *[]ContentItem
 }
 
 type CyclePatch struct {
-	Status          *string
-	Cycle_budget    *float64
-	Cycle_objective *string
-	Z_factor        *float64
-	End_date        *time.Time
+	Status           *string
+	Cycle_budget     *float64
+	Cycle_objective  *string
+	Z_factor         *float64
+	End_date         *time.Time
+	Content_override *[]ContentItem // pointer-to-nil clears the override
 }
 
 type AssignmentPatch struct {

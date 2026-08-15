@@ -43,8 +43,8 @@ func (q *Queries) CountCampaignsByBrandMonth(ctx context.Context, brandID string
 const createCampaign = `-- name: CreateCampaign :exec
 INSERT INTO campaigns (id, human_id, brand_id, name, status, campaign_type,
   total_budget, remaining_budget, market_cap, audience, target_cpa, max_cpa,
-  urgency_level, cycle_length, creators_allowed, start_date, end_date)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+  urgency_level, cycle_length, creators_allowed, content, start_date, end_date)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
 `
 
 type CreateCampaignParams struct {
@@ -63,6 +63,7 @@ type CreateCampaignParams struct {
 	UrgencyLevel    string
 	CycleLength     int32
 	CreatorsAllowed bool
+	Content         []byte
 	StartDate       pgtype.Timestamptz
 	EndDate         pgtype.Timestamptz
 }
@@ -84,6 +85,7 @@ func (q *Queries) CreateCampaign(ctx context.Context, arg CreateCampaignParams) 
 		arg.UrgencyLevel,
 		arg.CycleLength,
 		arg.CreatorsAllowed,
+		arg.Content,
 		arg.StartDate,
 		arg.EndDate,
 	)
@@ -107,7 +109,7 @@ func (q *Queries) DecrementRemainingBudget(ctx context.Context, arg DecrementRem
 }
 
 const getCampaignByHumanID = `-- name: GetCampaignByHumanID :one
-SELECT id, human_id, brand_id, name, status, campaign_type, total_budget, remaining_budget, market_cap, audience, target_cpa, max_cpa, urgency_level, cycle_length, creators_allowed, start_date, end_date, created_at, updated_at FROM campaigns WHERE human_id = $1
+SELECT id, human_id, brand_id, name, status, campaign_type, total_budget, remaining_budget, market_cap, audience, target_cpa, max_cpa, urgency_level, cycle_length, creators_allowed, start_date, end_date, created_at, updated_at, content FROM campaigns WHERE human_id = $1
 `
 
 func (q *Queries) GetCampaignByHumanID(ctx context.Context, humanID string) (Campaign, error) {
@@ -133,12 +135,13 @@ func (q *Queries) GetCampaignByHumanID(ctx context.Context, humanID string) (Cam
 		&i.EndDate,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Content,
 	)
 	return i, err
 }
 
 const getCampaignByID = `-- name: GetCampaignByID :one
-SELECT id, human_id, brand_id, name, status, campaign_type, total_budget, remaining_budget, market_cap, audience, target_cpa, max_cpa, urgency_level, cycle_length, creators_allowed, start_date, end_date, created_at, updated_at FROM campaigns WHERE id = $1
+SELECT id, human_id, brand_id, name, status, campaign_type, total_budget, remaining_budget, market_cap, audience, target_cpa, max_cpa, urgency_level, cycle_length, creators_allowed, start_date, end_date, created_at, updated_at, content FROM campaigns WHERE id = $1
 `
 
 func (q *Queries) GetCampaignByID(ctx context.Context, id string) (Campaign, error) {
@@ -164,12 +167,13 @@ func (q *Queries) GetCampaignByID(ctx context.Context, id string) (Campaign, err
 		&i.EndDate,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Content,
 	)
 	return i, err
 }
 
 const getCampaignsByManagerID = `-- name: GetCampaignsByManagerID :many
-SELECT c.id, c.human_id, c.brand_id, c.name, c.status, c.campaign_type, c.total_budget, c.remaining_budget, c.market_cap, c.audience, c.target_cpa, c.max_cpa, c.urgency_level, c.cycle_length, c.creators_allowed, c.start_date, c.end_date, c.created_at, c.updated_at FROM campaigns c
+SELECT c.id, c.human_id, c.brand_id, c.name, c.status, c.campaign_type, c.total_budget, c.remaining_budget, c.market_cap, c.audience, c.target_cpa, c.max_cpa, c.urgency_level, c.cycle_length, c.creators_allowed, c.start_date, c.end_date, c.created_at, c.updated_at, c.content FROM campaigns c
 JOIN manager_campaign_assignments m ON m.campaign_id = c.id
 WHERE m.manager_id = $1
 ORDER BY c.created_at DESC
@@ -204,6 +208,7 @@ func (q *Queries) GetCampaignsByManagerID(ctx context.Context, managerID string)
 			&i.EndDate,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Content,
 		); err != nil {
 			return nil, err
 		}
@@ -216,7 +221,7 @@ func (q *Queries) GetCampaignsByManagerID(ctx context.Context, managerID string)
 }
 
 const listActiveCampaigns = `-- name: ListActiveCampaigns :many
-SELECT id, human_id, brand_id, name, status, campaign_type, total_budget, remaining_budget, market_cap, audience, target_cpa, max_cpa, urgency_level, cycle_length, creators_allowed, start_date, end_date, created_at, updated_at FROM campaigns WHERE status = 'active' ORDER BY start_date
+SELECT id, human_id, brand_id, name, status, campaign_type, total_budget, remaining_budget, market_cap, audience, target_cpa, max_cpa, urgency_level, cycle_length, creators_allowed, start_date, end_date, created_at, updated_at, content FROM campaigns WHERE status = 'active' ORDER BY start_date
 `
 
 func (q *Queries) ListActiveCampaigns(ctx context.Context) ([]Campaign, error) {
@@ -248,6 +253,7 @@ func (q *Queries) ListActiveCampaigns(ctx context.Context) ([]Campaign, error) {
 			&i.EndDate,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Content,
 		); err != nil {
 			return nil, err
 		}
@@ -260,7 +266,7 @@ func (q *Queries) ListActiveCampaigns(ctx context.Context) ([]Campaign, error) {
 }
 
 const listCampaigns = `-- name: ListCampaigns :many
-SELECT id, human_id, brand_id, name, status, campaign_type, total_budget, remaining_budget, market_cap, audience, target_cpa, max_cpa, urgency_level, cycle_length, creators_allowed, start_date, end_date, created_at, updated_at FROM campaigns
+SELECT id, human_id, brand_id, name, status, campaign_type, total_budget, remaining_budget, market_cap, audience, target_cpa, max_cpa, urgency_level, cycle_length, creators_allowed, start_date, end_date, created_at, updated_at, content FROM campaigns
 WHERE ($1::text = '' OR status = $1)
   AND ($2::text = '' OR brand_id = $2)
 ORDER BY created_at DESC
@@ -308,6 +314,7 @@ func (q *Queries) ListCampaigns(ctx context.Context, arg ListCampaignsParams) ([
 			&i.EndDate,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Content,
 		); err != nil {
 			return nil, err
 		}
@@ -320,7 +327,7 @@ func (q *Queries) ListCampaigns(ctx context.Context, arg ListCampaignsParams) ([
 }
 
 const listManagersByCampaignID = `-- name: ListManagersByCampaignID :many
-SELECT u.id, u.email, u.password_hash, u.role, u.provider, u.google_id, u.full_name, u.avatar_url, u.totp_secret, u.totp_enabled, u.totp_verified, u.totp_last_verified_at, u.invite_token, u.invite_expires_at, u.active, u.created_at, u.updated_at, u.status, u.deleted_at FROM users u
+SELECT u.id, u.email, u.password_hash, u.role, u.provider, u.google_id, u.full_name, u.avatar_url, u.totp_secret, u.totp_enabled, u.totp_verified, u.totp_last_verified_at, u.invite_token, u.invite_expires_at, u.active, u.created_at, u.updated_at, u.status, u.deleted_at, u.phone_number FROM users u
 JOIN manager_campaign_assignments m ON m.manager_id = u.id
 WHERE m.campaign_id = $1
 ORDER BY u.full_name
@@ -355,6 +362,7 @@ func (q *Queries) ListManagersByCampaignID(ctx context.Context, campaignID strin
 			&i.UpdatedAt,
 			&i.Status,
 			&i.DeletedAt,
+			&i.PhoneNumber,
 		); err != nil {
 			return nil, err
 		}

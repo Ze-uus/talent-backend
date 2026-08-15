@@ -22,10 +22,16 @@ type mockStore struct {
 	baselines   map[string]store.TalentBaseline
 	assignments []store.TalentAssignment
 	links       []store.TrackingLink
+	users       map[string]store.User
+	payouts     []store.PayoutRecord
+	conversions map[string]float64
 }
 
 func newMock(cycle store.Cycle, campaign store.Campaign, slots []store.BudgetSlot, talents []store.Talent, baselines map[string]store.TalentBaseline) *mockStore {
-	return &mockStore{cycle: cycle, campaign: campaign, slots: slots, talents: talents, baselines: baselines}
+	return &mockStore{
+		cycle: cycle, campaign: campaign, slots: slots, talents: talents, baselines: baselines,
+		users: make(map[string]store.User), conversions: make(map[string]float64),
+	}
 }
 
 func (m *mockStore) GetCycleByID(_ context.Context, id string) (store.Cycle, error) {
@@ -80,8 +86,12 @@ func (m *mockStore) GetAuditChainTip(_ context.Context) (string, int64, error) {
 // stub remaining Store interface methods
 func (m *mockStore) Ping(_ context.Context) error                     { return nil }
 func (m *mockStore) CreateUser(_ context.Context, _ store.User) error { return nil }
-func (m *mockStore) GetUserByID(_ context.Context, _ string) (store.User, error) {
-	return store.User{}, nil
+func (m *mockStore) GetUserByID(_ context.Context, id string) (store.User, error) {
+	u, ok := m.users[id]
+	if !ok {
+		return store.User{}, errors.New("not_found")
+	}
+	return u, nil
 }
 func (m *mockStore) GetUserByEmail(_ context.Context, _ string) (store.User, error) {
 	return store.User{}, nil
@@ -137,8 +147,13 @@ func (m *mockStore) ValidateBrandContactAccess(_ context.Context, _, _ string) (
 	return store.BrandContact{}, nil
 }
 func (m *mockStore) CreateTalent(_ context.Context, _ store.Talent) error { return nil }
-func (m *mockStore) GetTalentByID(_ context.Context, _ string) (store.Talent, error) {
-	return store.Talent{}, nil
+func (m *mockStore) GetTalentByID(_ context.Context, id string) (store.Talent, error) {
+	for _, talent := range m.talents {
+		if talent.ID == id {
+			return talent, nil
+		}
+	}
+	return store.Talent{}, errors.New("not_found")
 }
 func (m *mockStore) GetTalentByUserID(_ context.Context, _ string) (store.Talent, error) {
 	return store.Talent{}, nil
@@ -201,15 +216,15 @@ func (m *mockStore) GetTrackingLinkByToken(_ context.Context, _ string) (store.T
 	return store.TrackingLink{}, nil
 }
 func (m *mockStore) ListTrackingLinksByCycle(_ context.Context, _ string) ([]store.TrackingLink, error) {
-	return nil, nil
+	return m.links, nil
 }
 func (m *mockStore) LogConversionEvent(_ context.Context, _ store.ConversionEvent) error { return nil }
 func (m *mockStore) GetDailyConversionCount(_ context.Context, _, _ string, _ time.Time) (float64, error) {
 	return 0, nil
 }
 func (m *mockStore) GetTotalConversions(_ context.Context, _ string) (float64, error) { return 0, nil }
-func (m *mockStore) GetTalentConversions(_ context.Context, _, _ string) (float64, error) {
-	return 0, nil
+func (m *mockStore) GetTalentConversions(_ context.Context, talentID, cycleID string) (float64, error) {
+	return m.conversions[talentID+":"+cycleID], nil
 }
 func (m *mockStore) FlagFallbackConversions(_ context.Context, _ string, _ time.Time) error {
 	return nil
@@ -252,7 +267,7 @@ func (m *mockStore) GetPayoutRecord(_ context.Context, _, _ string) (store.Payou
 	return store.PayoutRecord{}, nil
 }
 func (m *mockStore) ListPayoutsByCycle(_ context.Context, _ string) ([]store.PayoutRecord, error) {
-	return nil, nil
+	return m.payouts, nil
 }
 func (m *mockStore) ListPayoutsByTalent(_ context.Context, _ string) ([]store.PayoutRecord, error) {
 	return nil, nil
@@ -493,5 +508,53 @@ func TestRunSolver_ReplacesIncompatibleLegacySlots(t *testing.T) {
 	}
 	if len(output.Assignments) == 0 {
 		t.Fatalf("expected assignment after replacing incompatible slots: %+v", output)
+	}
+}
+
+func TestListCycleAssignments_ReturnsHumanTrackingPerformanceAndPayout(t *testing.T) {
+	cycle, campaign := makeCycleAndCampaign()
+	campaign.Name = "Launch"
+	campaign.Target_cpa = 120
+	campaign.Max_cpa = 180
+	campaign.Cycle_length = 14
+	talent := store.Talent{
+		ID: "talent-1", User_id: "user-1", Category: store.Category_student,
+		Status: store.Status_active, Skills: []string{"video"}, Rate_per_day: 250,
+	}
+	ms := newMock(cycle, campaign, nil, []store.Talent{talent}, nil)
+	ms.users["user-1"] = store.User{
+		ID: "user-1", Full_name: "Ada Human", Email: "ada@example.com",
+		Phone_number: "+2348012345678", Avatar_url: "https://example.com/ada.jpg",
+	}
+	ms.assignments = []store.TalentAssignment{{
+		Talent_id: "talent-1", Campaign_id: campaign.ID, Cycle_id: cycle.ID,
+		Status: "active", Role_label: "advocate", Match_score: 0.9, Effective_tier: 5000,
+	}}
+	ms.links = []store.TrackingLink{{
+		Talent_id: "talent-1", Cycle_id: cycle.ID, Token: "public-token", Active: true,
+	}}
+	ms.conversions["talent-1:"+cycle.ID] = 12
+	ms.payouts = []store.PayoutRecord{{
+		Talent_id: "talent-1", Cycle_id: cycle.ID, Campaign_id: campaign.ID,
+		Status: store.Payout_approved, Allocated_budget: 5000, Final_payout: 3200,
+	}}
+
+	views, err := assignment.New(ms, nil, nil, nil, nil, 0.97).
+		ListCycleAssignments(context.Background(), campaign.ID, cycle.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(views) != 1 {
+		t.Fatalf("views=%+v", views)
+	}
+	view := views[0]
+	if view.Human.FullName != "Ada Human" || view.Human.PhoneNumber != "+2348012345678" {
+		t.Fatalf("human=%+v", view.Human)
+	}
+	if view.TrackingLink == nil || view.TrackingLink.URL != "/t/public-token" {
+		t.Fatalf("tracking_link=%+v", view.TrackingLink)
+	}
+	if view.Performance.AOC != 12 || view.Earnings.TotalEarned != 3200 {
+		t.Fatalf("view=%+v", view)
 	}
 }

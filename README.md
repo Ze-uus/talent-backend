@@ -21,11 +21,19 @@ applicants each time.
 3. Admin runs the Assignment Solver → Hungarian Algorithm returns optimal talent→slot matching
 4. Admin reviews and confirms assignments (manual overrides are audit-logged)
 5. Assigned talents receive a unique tracking link and campaign brief
-6. Talent shares the link — every click/conversion auto-logs via `POST /track/:token`
-7. The Daily Compute Job (00:00 UTC) classifies each talent's utilization pattern and updates PDC_next
-8. The Nightly Learning Job (01:00 UTC) updates each talent's long-term Bayesian baseline
-9. At cycle close, payouts are calculated, scored against KPIs, and queued for admin approval
-10. Remaining campaign budget is carried forward to Cycle 2
+6. Talent shares the link — the public frontend renders content from `GET /t/:token`
+7. The frontend records page views, CTA clicks, leads, and purchases via `POST /t/:token`
+8. The Daily Compute Job (00:00 UTC) classifies each talent's utilization pattern and updates PDC_next
+9. The Nightly Learning Job (01:00 UTC) updates each talent's long-term Bayesian baseline
+10. At cycle close, payouts are calculated, scored against KPIs, and queued for admin approval
+11. Remaining campaign budget is carried forward to Cycle 2
+
+**Campaign presentation content:**
+- Campaigns accept an ordered `content` array of `{id, title, description, images, links}` objects.
+- Cycles may provide `content_override`; omit it to inherit campaign content.
+- Patch a cycle with `"inherit_content": true` to clear its override and resume inheritance.
+- Upload up to 10 images per request with `POST /admin/campaigns/{id}/content/images`, then patch the returned CDN URLs into the content array.
+- `GET /t/{token}` is read-only and public. `POST /t/{token}` records an explicitly supplied event and requires an idempotency key.
 
 **Three real-time views:**
 - **Admin** — birds-eye cycle dashboard over WebSocket (`/ws/admin/{cycle_id}`); global audit/ops stream at `/ws/admin/live`

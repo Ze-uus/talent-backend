@@ -23,7 +23,6 @@ import (
 	"github.com/Ze-uus/talent-backend/internal/mail"
 	"github.com/Ze-uus/talent-backend/internal/media"
 	mw "github.com/Ze-uus/talent-backend/internal/middleware"
-	postgres "github.com/Ze-uus/talent-backend/internal/store/postgres"
 	adminsvc "github.com/Ze-uus/talent-backend/internal/src/admin"
 	assignmentsvc "github.com/Ze-uus/talent-backend/internal/src/assignment"
 	authsvc "github.com/Ze-uus/talent-backend/internal/src/auth"
@@ -34,6 +33,7 @@ import (
 	settingssvc "github.com/Ze-uus/talent-backend/internal/src/settings"
 	talentsvc "github.com/Ze-uus/talent-backend/internal/src/talent"
 	trackingsvc "github.com/Ze-uus/talent-backend/internal/src/tracking"
+	postgres "github.com/Ze-uus/talent-backend/internal/store/postgres"
 	ws "github.com/Ze-uus/talent-backend/internal/websocket"
 )
 
@@ -100,7 +100,7 @@ func main() {
 	// ─── Services (channels wired after hub creation) ───────────────────────────
 
 	payout := payoutsvc.New(db, mailSvc, auditor)
-	campaign := campaignsvc.New(db, payout, cycle_update_ch, log, mailSvc, auditor)
+	campaign := campaignsvc.New(db, payout, cycle_update_ch, log, mailSvc, auditor, uploader)
 	brand := brandsvc.New(db, uploader, auditor)
 	talent := talentsvc.New(db, auditor)
 	assignment := assignmentsvc.New(db, talent_update_ch, log, mailSvc, auditor, cfg.Delta_lt)
@@ -196,9 +196,10 @@ Authorization: Bearer <token>
 3. Cycle opened           POST /campaigns/:id/cycles
 4. Talents assigned       POST /assignments
 5. Tracking links issued  POST /assignments/:id/links
-6. Conversions logged     GET  /t/:token  (public tracking endpoint)
-7. Cycle closed           POST /cycles/:id/close
-8. Payout calculated      GET  /payouts/cycle/:id
+6. Content rendered      GET  /t/:token  (public presentation endpoint)
+7. Conversions logged    POST /t/:token  (public event endpoint)
+8. Cycle closed           POST /cycles/:id/close
+9. Payout calculated      GET  /payouts/cycle/:id
 ` + "```" + `
 
 ---
@@ -296,7 +297,7 @@ window.onload = function() {
 	})
 
 	brandsvc.Mount(api, r, brand)
-	campaignsvc.Mount(api, campaign)
+	campaignsvc.Mount(api, r, campaign)
 	assignmentsvc.Mount(api, assignment)
 	payoutsvc.Mount(api, payout)
 	adminsvc.Mount(api, admin)

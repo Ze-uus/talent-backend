@@ -123,6 +123,7 @@ type User struct {
 	Provider              Auth_provider
 	Google_id             string `json:"-"` // never serialize
 	Full_name             string
+	Phone_number          string
 	Avatar_url            string
 	Totp_secret           string `json:"-"` // never serialize — only returned explicitly from enroll
 	Totp_enabled          bool
@@ -215,8 +216,8 @@ type Talent struct {
 // Human ID format: "CRD-26-01" (shortcode-YY-sequential).
 type Campaign struct {
 	ID               string
-	Human_id         string          // e.g. "CRD-26-01" — display identifier
-	Brand_id         string          // FK → brands.id
+	Human_id         string // e.g. "CRD-26-01" — display identifier
+	Brand_id         string // FK → brands.id
 	Name             string
 	Status           Campaign_status
 	Campaign_type    Campaign_type
@@ -229,6 +230,7 @@ type Campaign struct {
 	Urgency_level    Urgency_level
 	Cycle_length     int // 5, 7, or 10 days
 	Creators_allowed bool
+	Content          []ContentItem
 	Start_date       time.Time
 	End_date         time.Time
 	Created_at       time.Time
@@ -241,7 +243,7 @@ type Campaign struct {
 // Human ID format: "CRD-26-01-C2" (campaign human_id + "-C" + cycle_number).
 type Cycle struct {
 	ID               string
-	Human_id         string         // e.g. "CRD-26-01-C2"
+	Human_id         string // e.g. "CRD-26-01-C2"
 	Campaign_id      string
 	Cycle_number     int
 	Status           Cycle_status
@@ -250,6 +252,7 @@ type Cycle struct {
 	Cycle_objective  string
 	Campaign_type    Campaign_type
 	KPB_config       []KPBDefinition // lead_validation only
+	Content_override *[]ContentItem  // nil inherits campaign content
 	Z_factor         float64         // derived from campaign urgency_level at creation
 	Start_date       time.Time
 	End_date         time.Time
@@ -261,6 +264,20 @@ type KPBDefinition struct {
 	Label    string  `json:"label"`
 	Cost     float64 `json:"cost"`
 	Quantity int     `json:"quantity"`
+}
+
+type ContentItem struct {
+	ID          string        `json:"id"`
+	Title       string        `json:"title"`
+	Description string        `json:"description"`
+	Images      []string      `json:"images"`
+	Links       []ContentLink `json:"links"`
+}
+
+type ContentLink struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	URL   string `json:"url"`
 }
 
 // ─── Budget Slot ──────────────────────────────────────────────────────────────

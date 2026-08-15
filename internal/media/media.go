@@ -44,6 +44,10 @@ func FolderAvatar(userID string) string {
 	return path.Join("/scaloo/avatars", userID)
 }
 
+func FolderCampaignContent(campaignID string) string {
+	return path.Join("/scaloo/campaigns", campaignID, "content")
+}
+
 // ExtForContentType maps allowed image MIME types to file extensions.
 func ExtForContentType(ct string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(ct)) {

@@ -4,9 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"errors"
 	"log/slog"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/Ze-uus/talent-backend/internal/algo"
 	"github.com/Ze-uus/talent-backend/internal/allocation"
@@ -14,6 +15,7 @@ import (
 	"github.com/Ze-uus/talent-backend/internal/baseline"
 	"github.com/Ze-uus/talent-backend/internal/domain"
 	"github.com/Ze-uus/talent-backend/internal/mail"
+	"github.com/Ze-uus/talent-backend/internal/response"
 	"github.com/Ze-uus/talent-backend/internal/store"
 	ws "github.com/Ze-uus/talent-backend/internal/websocket"
 )
@@ -36,6 +38,7 @@ func New(s store.Store, talent_update_ch chan<- domain.TalentUpdateEvent, log *s
 
 type SolverOutput struct {
 	Cycle_id           string                           `json:"cycle_id"`
+	Slots              []SlotView                       `json:"slots"`
 	Assignments        []algo.Assignment                `json:"assignments"`
 	Unassigned         []string                         `json:"unassigned"`
 	Unassigned_details []UnassignedDetail               `json:"unassigned_details"`
@@ -84,7 +87,7 @@ func (s *AssignmentService) RunSolver(ctx context.Context, cycle_id string) (Sol
 			return SolverOutput{}, err
 		}
 		if len(regenerated) == 0 {
-			return SolverOutput{}, errors.New("no eligible budget slots")
+			return SolverOutput{}, response.Validation("no_eligible_budget_slots")
 		}
 		if err := s.st.CreateBudgetSlots(ctx, regenerated); err != nil {
 			return SolverOutput{}, err
@@ -162,6 +165,7 @@ func (s *AssignmentService) RunSolver(ctx context.Context, cycle_id string) (Sol
 
 	return SolverOutput{
 		Cycle_id:           cycle_id,
+		Slots:              slotViews(slots),
 		Assignments:        result.Assignments,
 		Unassigned:         result.Unassigned,
 		Unassigned_details: explainUnassigned(result.Unassigned, talent_profiles, algo_slots, all_tiers, campaign.Target_cpa),
@@ -225,7 +229,7 @@ func (s *AssignmentService) ListCycleAssignments(ctx context.Context, campaignID
 		return nil, err
 	}
 	if cycle.Campaign_id != campaign.ID {
-		return nil, errors.New("cycle_campaign_mismatch")
+		return nil, response.Validation("cycle_campaign_mismatch")
 	}
 	assignments, err := s.st.ListAssignedTalents(ctx, cycleID)
 	if err != nil {
@@ -323,6 +327,79 @@ func (s *AssignmentService) ListCycleAssignments(ctx context.Context, campaignID
 	return views, nil
 }
 
+// AddHuman assigns a talent to a cycle without solver qualification.
+// Match scores are still computed and stored; assignment_source is always manual.
+func (s *AssignmentService) AddHuman(ctx context.Context, campaignID, cycleID, actorID string, in AddHumanInput) (HumanAssignmentView, error) {
+	if in.TalentID == "" {
+		return HumanAssignmentView{}, response.Validation("talent_id_required")
+	}
+	tier, err := normalizeEffectiveTier(in.EffectiveTier)
+	if err != nil {
+		return HumanAssignmentView{}, err
+	}
+	campaign, err := s.st.GetCampaignByID(ctx, campaignID)
+	if err != nil {
+		return HumanAssignmentView{}, err
+	}
+	cycle, err := s.st.GetCycleByID(ctx, cycleID)
+	if err != nil {
+		return HumanAssignmentView{}, err
+	}
+	if cycle.Campaign_id != campaign.ID {
+		return HumanAssignmentView{}, response.Validation("cycle_campaign_mismatch")
+	}
+	if cycle.Status == store.Cycle_closed {
+		return HumanAssignmentView{}, response.Validation("cycle_closed")
+	}
+	talent, err := s.resolveTalent(ctx, in.TalentID)
+	if err != nil {
+		return HumanAssignmentView{}, err
+	}
+	if talent.Status != store.Status_active {
+		return HumanAssignmentView{}, response.Validation("talent_not_active")
+	}
+	if existing, err := s.st.GetAssignment(ctx, talent.ID, cycle.ID); err == nil && existing.Talent_id != "" && existing.Status != "removed_payout" {
+		return HumanAssignmentView{}, response.Conflict("talent_already_assigned")
+	}
+
+	slots, err := s.st.ListSlotsByCycle(ctx, cycle.ID)
+	if err != nil {
+		return HumanAssignmentView{}, err
+	}
+	slot, err := s.pickOrCreateSlot(ctx, cycle, slots, tier)
+	if err != nil {
+		return HumanAssignmentView{}, err
+	}
+
+	ms, pdc, err := s.matchScoreFor(ctx, talent, campaign, cycle)
+	if err != nil {
+		return HumanAssignmentView{}, err
+	}
+	output := SolverOutput{Match_scores: map[string]algo.MatchScoreResult{talent.ID: ms}}
+	confirmed := []ConfirmedAssignment{{
+		Talent_id:      talent.ID,
+		Slot_id:        slot.ID,
+		Role_label:     in.RoleLabel,
+		PDC_mode:       store.Pdc_cold_start,
+		PDC_value:      pdc,
+		Effective_tier: tier,
+	}}
+	if err := s.ConfirmAssignments(ctx, cycle.ID, campaign.ID, actorID, confirmed, output, true); err != nil {
+		return HumanAssignmentView{}, err
+	}
+
+	views, err := s.ListCycleAssignments(ctx, campaign.ID, cycle.ID)
+	if err != nil {
+		return HumanAssignmentView{}, err
+	}
+	for _, view := range views {
+		if view.TalentID == talent.ID {
+			return view, nil
+		}
+	}
+	return HumanAssignmentView{}, response.NotFound("not_found")
+}
+
 // ConfirmAssignments persists solver output with full allocation audit fields.
 func (s *AssignmentService) ConfirmAssignments(
 	ctx context.Context,
@@ -332,6 +409,9 @@ func (s *AssignmentService) ConfirmAssignments(
 	is_override bool,
 ) error {
 	for _, ca := range confirmed {
+		if ca.Effective_tier <= 0 || ca.Effective_tier > 2_147_483_647 {
+			return response.Validation("tier_value_exceeds_supported_range")
+		}
 		ms := output.Match_scores[ca.Talent_id]
 		source := store.Source_algorithm
 		pinned_tier := 0
@@ -476,6 +556,110 @@ func generateLinkToken() string {
 	b := make([]byte, 18)
 	_, _ = rand.Read(b)
 	return base64.URLEncoding.EncodeToString(b)[:24]
+}
+
+func slotViews(slots []store.BudgetSlot) []SlotView {
+	views := make([]SlotView, 0, len(slots))
+	for _, sl := range slots {
+		views = append(views, SlotView{
+			ID: sl.ID, TierValue: sl.Tier_value, SlotIndex: sl.Slot_index,
+			Allocated: sl.Allocated, TalentID: sl.Talent_id,
+		})
+	}
+	return views
+}
+
+func (s *AssignmentService) resolveTalent(ctx context.Context, id string) (store.Talent, error) {
+	t, err := s.st.GetTalentByID(ctx, id)
+	if err == nil {
+		return t, nil
+	}
+	t, err = s.st.GetTalentByUserID(ctx, id)
+	if err == nil {
+		return t, nil
+	}
+	return store.Talent{}, response.NotFound("talent_not_found")
+}
+
+func (s *AssignmentService) matchScoreFor(ctx context.Context, t store.Talent, campaign store.Campaign, cycle store.Cycle) (algo.MatchScoreResult, float64, error) {
+	b, err := s.st.GetTalentBaseline(ctx, t.ID)
+	if err != nil {
+		if bootErr := baseline.EnsureColdStart(ctx, s.st, t, s.delta_lt); bootErr != nil {
+			return algo.MatchScoreResult{}, 0, bootErr
+		}
+		b, err = s.st.GetTalentBaseline(ctx, t.ID)
+		if err != nil {
+			return algo.MatchScoreResult{}, 0, err
+		}
+	}
+	ms := algo.ComputeMatchScore(algo.MatchDimensions{
+		DM: computeDemographicMatch(t, campaign),
+		GP: computeGeographicProximity(t, campaign),
+		OH: computeObjectiveHistory(t, campaign.Campaign_type),
+	})
+	pdc, err := algo.Cycle1PDC(algo.TalentBaseline{Lambda_lt: b.Lambda_lt}, cycle.Cycle_budget)
+	if err != nil {
+		return algo.MatchScoreResult{}, 0, err
+	}
+	return ms, pdc, nil
+}
+
+func normalizeEffectiveTier(tier int) (int, error) {
+	if tier <= 0 || tier > 2_147_483_647 {
+		return 0, response.Validation("tier_value_exceeds_supported_range")
+	}
+	cfg := algo.DefaultConfig()
+	rounded := (tier / cfg.Tier_increment) * cfg.Tier_increment
+	if rounded < cfg.Min_tier {
+		return 0, response.Validation("tier_value_exceeds_supported_range")
+	}
+	if rounded > cfg.Max_tier_cap {
+		rounded = cfg.Max_tier_cap
+	}
+	return rounded, nil
+}
+
+func (s *AssignmentService) pickOrCreateSlot(ctx context.Context, cycle store.Cycle, slots []store.BudgetSlot, tier int) (store.BudgetSlot, error) {
+	used := 0
+	maxIndexForTier := -1
+	var exact *store.BudgetSlot
+	var fallback *store.BudgetSlot
+	for i := range slots {
+		sl := &slots[i]
+		used += sl.Tier_value
+		if sl.Tier_value == tier && sl.Slot_index > maxIndexForTier {
+			maxIndexForTier = sl.Slot_index
+		}
+		if sl.Allocated {
+			continue
+		}
+		if sl.Tier_value == tier && exact == nil {
+			exact = sl
+			continue
+		}
+		if fallback == nil {
+			fallback = sl
+		}
+	}
+	if exact != nil {
+		return *exact, nil
+	}
+	if float64(used+tier) <= cycle.Cycle_budget {
+		created := store.BudgetSlot{
+			ID:         uuid.NewString(),
+			Cycle_id:   cycle.ID,
+			Tier_value: tier,
+			Slot_index: maxIndexForTier + 1,
+		}
+		if err := s.st.CreateBudgetSlots(ctx, []store.BudgetSlot{created}); err != nil {
+			return store.BudgetSlot{}, err
+		}
+		return created, nil
+	}
+	if fallback != nil {
+		return *fallback, nil
+	}
+	return store.BudgetSlot{}, response.Validation("no_budget_slot")
 }
 
 // Ensure helper is used.

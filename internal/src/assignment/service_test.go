@@ -63,7 +63,16 @@ func (m *mockStore) CreateAssignment(_ context.Context, a store.TalentAssignment
 	m.assignments = append(m.assignments, a)
 	return nil
 }
-func (m *mockStore) AssignSlot(_ context.Context, _, _ string) error { return nil }
+func (m *mockStore) AssignSlot(_ context.Context, slotID, talentID string) error {
+	for i := range m.slots {
+		if m.slots[i].ID == slotID {
+			m.slots[i].Allocated = true
+			m.slots[i].Talent_id = talentID
+			return nil
+		}
+	}
+	return nil
+}
 func (m *mockStore) CreateTrackingLink(_ context.Context, l store.TrackingLink) error {
 	m.links = append(m.links, l)
 	return nil
@@ -155,8 +164,13 @@ func (m *mockStore) GetTalentByID(_ context.Context, id string) (store.Talent, e
 	}
 	return store.Talent{}, errors.New("not_found")
 }
-func (m *mockStore) GetTalentByUserID(_ context.Context, _ string) (store.Talent, error) {
-	return store.Talent{}, nil
+func (m *mockStore) GetTalentByUserID(_ context.Context, userID string) (store.Talent, error) {
+	for _, talent := range m.talents {
+		if talent.User_id == userID {
+			return talent, nil
+		}
+	}
+	return store.Talent{}, errors.New("not_found")
 }
 func (m *mockStore) ListTalents(_ context.Context, _ store.TalentFilter) ([]store.Talent, error) {
 	return nil, nil
@@ -199,9 +213,17 @@ func (m *mockStore) ListCyclesByCampaign(_ context.Context, _ string) ([]store.C
 func (m *mockStore) GetActiveCycles(_ context.Context) ([]store.Cycle, error)          { return nil, nil }
 func (m *mockStore) UpdateCycle(_ context.Context, _ string, _ store.CyclePatch) error { return nil }
 func (m *mockStore) CloseCycle(_ context.Context, _ string, _ float64) error           { return nil }
-func (m *mockStore) CreateBudgetSlots(_ context.Context, _ []store.BudgetSlot) error   { return nil }
-func (m *mockStore) GetAssignment(_ context.Context, _, _ string) (store.TalentAssignment, error) {
-	return store.TalentAssignment{}, nil
+func (m *mockStore) CreateBudgetSlots(_ context.Context, slots []store.BudgetSlot) error {
+	m.slots = append(m.slots, slots...)
+	return nil
+}
+func (m *mockStore) GetAssignment(_ context.Context, talentID, cycleID string) (store.TalentAssignment, error) {
+	for _, a := range m.assignments {
+		if a.Talent_id == talentID && a.Cycle_id == cycleID {
+			return a, nil
+		}
+	}
+	return store.TalentAssignment{}, errors.New("not_found")
 }
 func (m *mockStore) ListAssignedTalents(_ context.Context, _ string) ([]store.TalentAssignment, error) {
 	return m.assignments, nil
@@ -350,6 +372,9 @@ func TestRunSolver_MatchScoresComputed(t *testing.T) {
 	}
 	if len(output.Match_scores) == 0 {
 		t.Fatal("expected match_scores to be populated")
+	}
+	if len(output.Slots) == 0 {
+		t.Fatal("expected slots on solver output")
 	}
 	for tid, ms := range output.Match_scores {
 		if ms.MS_t <= 0 {
@@ -556,5 +581,144 @@ func TestListCycleAssignments_ReturnsHumanTrackingPerformanceAndPayout(t *testin
 	}
 	if view.Performance.AOC != 12 || view.Earnings.TotalEarned != 3200 {
 		t.Fatalf("view=%+v", view)
+	}
+}
+
+func TestAddHuman_AssignsEvenWhenSolverTooWeak(t *testing.T) {
+	cycle, campaign := makeCycleAndCampaign()
+	slots := makeSlots()
+	talents, baselines := makeTalentsAndBaselines()
+	talents[1].User_id = "user-t2"
+	ms := newMock(cycle, campaign, slots, talents, baselines)
+	ms.users["user-t2"] = store.User{ID: "user-t2", Full_name: "Micro Human", Email: "micro@example.com"}
+
+	svc := assignment.New(ms, nil, nil, nil, nil, 0.97)
+	solver, err := svc.RunSolver(context.Background(), cycle.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tooWeak := false
+	for _, detail := range solver.Unassigned_details {
+		if detail.Talent_id == "t2" && detail.Reason == "too_weak" {
+			tooWeak = true
+		}
+	}
+	if !tooWeak {
+		t.Fatalf("expected t2 too_weak, got %+v", solver.Unassigned_details)
+	}
+
+	view, err := svc.AddHuman(context.Background(), campaign.ID, cycle.ID, "actor-1", assignment.AddHumanInput{
+		TalentID: "t2", EffectiveTier: 10000, RoleLabel: "advocate",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Assignment.AssignmentSource != store.Source_manual {
+		t.Fatalf("source=%s", view.Assignment.AssignmentSource)
+	}
+	if view.Assignment.EffectiveTier != 10000 {
+		t.Fatalf("tier=%d", view.Assignment.EffectiveTier)
+	}
+	if view.Performance.MatchScore <= 0 {
+		t.Fatalf("match_score=%v", view.Performance)
+	}
+	if len(ms.assignments) != 1 || ms.assignments[0].Assignment_source != store.Source_manual {
+		t.Fatalf("assignments=%+v", ms.assignments)
+	}
+}
+
+func TestAddHuman_CreatesSlotWhenNoneFree(t *testing.T) {
+	cycle, campaign := makeCycleAndCampaign()
+	slots := makeSlots()
+	slots[0].Allocated = true
+	slots[1].Allocated = true
+	talents, baselines := makeTalentsAndBaselines()
+	talents[0].User_id = "user-t1"
+	ms := newMock(cycle, campaign, slots, talents, baselines)
+	ms.users["user-t1"] = store.User{ID: "user-t1", Full_name: "Ada", Email: "ada@example.com"}
+
+	view, err := assignment.New(ms, nil, nil, nil, nil, 0.97).
+		AddHuman(context.Background(), campaign.ID, cycle.ID, "actor-1", assignment.AddHumanInput{
+			TalentID: "t1", EffectiveTier: 15000,
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Assignment.EffectiveTier != 15000 {
+		t.Fatalf("tier=%d", view.Assignment.EffectiveTier)
+	}
+	created := false
+	for _, slot := range ms.slots {
+		if slot.Tier_value == 15000 && slot.Allocated {
+			created = true
+		}
+	}
+	if !created {
+		t.Fatalf("expected new 15000 slot, got %+v", ms.slots)
+	}
+}
+
+func TestAddHuman_RejectsAlreadyAssigned(t *testing.T) {
+	cycle, campaign := makeCycleAndCampaign()
+	talents, baselines := makeTalentsAndBaselines()
+	ms := newMock(cycle, campaign, makeSlots(), talents, baselines)
+	ms.assignments = []store.TalentAssignment{{
+		Talent_id: "t1", Cycle_id: cycle.ID, Status: "active",
+	}}
+
+	_, err := assignment.New(ms, nil, nil, nil, nil, 0.97).
+		AddHuman(context.Background(), campaign.ID, cycle.ID, "actor-1", assignment.AddHumanInput{
+			TalentID: "t1", EffectiveTier: 5000,
+		})
+	if err == nil || err.Error() != "talent_already_assigned" {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestAddHuman_RejectsClosedCycle(t *testing.T) {
+	cycle, campaign := makeCycleAndCampaign()
+	cycle.Status = store.Cycle_closed
+	talents, baselines := makeTalentsAndBaselines()
+	ms := newMock(cycle, campaign, makeSlots(), talents, baselines)
+
+	_, err := assignment.New(ms, nil, nil, nil, nil, 0.97).
+		AddHuman(context.Background(), campaign.ID, cycle.ID, "actor-1", assignment.AddHumanInput{
+			TalentID: "t1", EffectiveTier: 5000,
+		})
+	if err == nil || err.Error() != "cycle_closed" {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestAddHuman_RejectsInactiveTalent(t *testing.T) {
+	cycle, campaign := makeCycleAndCampaign()
+	talents, baselines := makeTalentsAndBaselines()
+	talents[0].Status = store.Status_pending
+	ms := newMock(cycle, campaign, makeSlots(), talents, baselines)
+
+	_, err := assignment.New(ms, nil, nil, nil, nil, 0.97).
+		AddHuman(context.Background(), campaign.ID, cycle.ID, "actor-1", assignment.AddHumanInput{
+			TalentID: "t1", EffectiveTier: 5000,
+		})
+	if err == nil || err.Error() != "talent_not_active" {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestAddHuman_NoBudgetSlot(t *testing.T) {
+	cycle, campaign := makeCycleAndCampaign()
+	cycle.Cycle_budget = 15000
+	slots := makeSlots()
+	slots[0].Allocated = true
+	slots[1].Allocated = true
+	talents, baselines := makeTalentsAndBaselines()
+	ms := newMock(cycle, campaign, slots, talents, baselines)
+
+	_, err := assignment.New(ms, nil, nil, nil, nil, 0.97).
+		AddHuman(context.Background(), campaign.ID, cycle.ID, "actor-1", assignment.AddHumanInput{
+			TalentID: "t1", EffectiveTier: 10000,
+		})
+	if err == nil || err.Error() != "no_budget_slot" {
+		t.Fatalf("err=%v", err)
 	}
 }

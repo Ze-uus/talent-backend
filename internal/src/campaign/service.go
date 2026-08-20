@@ -2,7 +2,6 @@ package campaign
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,6 +14,7 @@ import (
 	"github.com/Ze-uus/talent-backend/internal/domain"
 	"github.com/Ze-uus/talent-backend/internal/mail"
 	"github.com/Ze-uus/talent-backend/internal/media"
+	"github.com/Ze-uus/talent-backend/internal/response"
 	payoutsvc "github.com/Ze-uus/talent-backend/internal/src/payout"
 	"github.com/Ze-uus/talent-backend/internal/store"
 	ws "github.com/Ze-uus/talent-backend/internal/websocket"
@@ -50,10 +50,10 @@ func (s *CampaignService) UploadContentImages(ctx context.Context, campaignID st
 		return nil, err
 	}
 	if len(files) == 0 {
-		return nil, errors.New("content_images_required")
+		return nil, response.Validation("content_images_required")
 	}
 	if len(files) > MaxCampaignImagesPerUpload {
-		return nil, errors.New("too_many_content_images")
+		return nil, response.Validation("too_many_content_images")
 	}
 
 	urls := make([]string, 0, len(files))
@@ -103,6 +103,9 @@ func (s *CampaignService) emitCycleUpdate(ctx context.Context, cycle store.Cycle
 // ─── Campaign CRUD ────────────────────────────────────────────────────────────
 
 func (s *CampaignService) Create(ctx context.Context, c store.Campaign) (store.Campaign, error) {
+	if err := validateCampaign(c); err != nil {
+		return store.Campaign{}, err
+	}
 	content, err := store.NormalizeAndValidateContent(c.Content)
 	if err != nil {
 		return store.Campaign{}, err
@@ -170,6 +173,9 @@ func (s *CampaignService) Get(ctx context.Context, id string) (CampaignDetail, e
 }
 
 func (s *CampaignService) Patch(ctx context.Context, id string, patch store.CampaignPatch) error {
+	if err := validateCampaignPatch(patch); err != nil {
+		return err
+	}
 	if patch.Content != nil {
 		content, err := store.NormalizeAndValidateContent(*patch.Content)
 		if err != nil {
@@ -259,6 +265,10 @@ func (s *CampaignService) CreateCycle(ctx context.Context, c store.Cycle) (store
 	if err != nil {
 		return store.Cycle{}, err
 	}
+	campaign.Remaining_budget = remainingCycleBudget(campaign, existing, "")
+	if err := validateCycleBudget(campaign, c.Cycle_budget); err != nil {
+		return store.Cycle{}, err
+	}
 
 	talents, err := s.st.ListAllTalents(ctx)
 	if err != nil {
@@ -330,6 +340,30 @@ func (s *CampaignService) GetCycle(ctx context.Context, id string) (store.Cycle,
 }
 
 func (s *CampaignService) PatchCycle(ctx context.Context, id string, patch store.CyclePatch) error {
+	if patch.Status != nil && !validCycleStatus(*patch.Status) {
+		return response.Validation("invalid_cycle_status")
+	}
+	if patch.Z_factor != nil && (!positiveFinite(*patch.Z_factor) || *patch.Z_factor > 99.99) {
+		return response.Validation("invalid_z_factor")
+	}
+	if patch.Cycle_budget != nil {
+		cycle, err := s.st.GetCycleByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		campaign, err := s.st.GetCampaignByID(ctx, cycle.Campaign_id)
+		if err != nil {
+			return err
+		}
+		cycles, err := s.st.ListCyclesByCampaign(ctx, cycle.Campaign_id)
+		if err != nil {
+			return err
+		}
+		campaign.Remaining_budget = remainingCycleBudget(campaign, cycles, cycle.ID)
+		if err := validateCycleBudget(campaign, *patch.Cycle_budget); err != nil {
+			return err
+		}
+	}
 	if patch.Content_override != nil && *patch.Content_override != nil {
 		content, err := store.NormalizeAndValidateContent(*patch.Content_override)
 		if err != nil {
@@ -419,7 +453,7 @@ func (s *CampaignService) FinalisePayouts(ctx context.Context, cycle_id string) 
 		return err
 	}
 	if cycle.Status != store.Cycle_active {
-		return errors.New("cycle_not_active")
+		return response.Validation("cycle_not_active")
 	}
 	if err := s.st.LockFallbackConversions(ctx, cycle_id); err != nil {
 		return err

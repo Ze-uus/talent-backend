@@ -38,7 +38,7 @@ func (h *handler) register(api huma.API) {
 		}
 		payouts, err := h.svc.st.ListPayoutsByCycle(ctx, in.Cid)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(payouts, "ok")}, nil
 	})
@@ -59,7 +59,7 @@ func (h *handler) register(api huma.API) {
 		}
 		record, err := h.svc.st.GetPayoutRecord(ctx, in.Tid, in.Cid)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(record, "ok")}, nil
 	})
@@ -80,7 +80,7 @@ func (h *handler) register(api huma.API) {
 			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.ApprovePayout(ctx, in.Tid, in.Cid, u.ID); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "payout_approved")}, nil
 	})
@@ -101,7 +101,7 @@ func (h *handler) register(api huma.API) {
 			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.MarkPayoutPaid(ctx, in.Tid, in.Cid, u.ID); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "payout_paid")}, nil
 	})
@@ -125,7 +125,7 @@ func (h *handler) register(api huma.API) {
 			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.FlagPayout(ctx, in.Tid, in.Cid, in.Body.Reason, u.ID); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "payout_flagged")}, nil
 	})

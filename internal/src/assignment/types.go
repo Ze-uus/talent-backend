@@ -6,6 +6,20 @@ import (
 	"github.com/Ze-uus/talent-backend/internal/store"
 )
 
+type AddHumanInput struct {
+	TalentID      string `json:"talent_id"`
+	EffectiveTier int    `json:"effective_tier"`
+	RoleLabel     string `json:"role_label,omitempty"`
+}
+
+type SlotView struct {
+	ID        string `json:"id"`
+	TierValue int    `json:"tier_value"`
+	SlotIndex int    `json:"slot_index"`
+	Allocated bool   `json:"allocated"`
+	TalentID  string `json:"talent_id,omitempty"`
+}
+
 type HumanAssignmentView struct {
 	TalentID     string                  `json:"talent_id"`
 	Human        AssignmentHuman         `json:"human"`

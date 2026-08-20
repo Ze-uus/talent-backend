@@ -63,7 +63,7 @@ func (h *handler) registerTalentAuth(api huma.API) {
 		}
 	}) (*std_output, error) {
 		if err := h.svc.RegisterTalent(ctx, in.Body.Email, in.Body.Password, in.Body.Full_name, in.Body.Phone_number); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "registration_pending_approval")}, nil
 	})
@@ -115,7 +115,7 @@ func (h *handler) registerTalentAuth(api huma.API) {
 	}, func(ctx context.Context, _ *struct{}) (*std_output, error) {
 		auth_url, state, err := h.svc.GoogleAuthURL()
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]string{
 			"auth_url": auth_url,
@@ -191,7 +191,7 @@ func (h *handler) registerStaffInvites(api huma.API) {
 		}
 		token, err := h.svc.InviteSuperAdmin(ctx, in.Body.Email, in.Body.Full_name)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]string{"invite_token": token}, "invite_sent")}, nil
 	})
@@ -214,7 +214,7 @@ func (h *handler) registerStaffInvites(api huma.API) {
 		}
 		token, err := h.svc.InviteAdmin(ctx, in.Body.Email, in.Body.Full_name)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]string{"invite_token": token}, "invite_sent")}, nil
 	})
@@ -237,7 +237,7 @@ func (h *handler) registerStaffInvites(api huma.API) {
 		}
 		token, err := h.svc.InviteCampaignManager(ctx, in.Body.Email, in.Body.Full_name)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]string{"invite_token": token}, "invite_sent")}, nil
 	})
@@ -257,7 +257,7 @@ func (h *handler) registerStaffInvites(api huma.API) {
 	}) (*std_output, error) {
 		u, err := h.svc.VerifyInvite(ctx, in.Body.Invite_token, in.Body.Password)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]string{
 			"id":   u.ID,
@@ -282,7 +282,7 @@ func (h *handler) registerTOTP(api huma.API) {
 		}
 		secret, qr_uri, err := h.svc.EnrollTOTP(ctx, u.ID)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]string{
 			"secret": secret,
@@ -306,7 +306,7 @@ func (h *handler) registerTOTP(api huma.API) {
 			return &std_output{Status: 401, Body: response.Fail("unauthenticated")}, nil
 		}
 		if err := h.svc.VerifyAndEnableTOTP(ctx, u.ID, in.Body.Code); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "totp_activated")}, nil
 	})

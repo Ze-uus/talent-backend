@@ -58,6 +58,7 @@ type Cycle_status string
 const (
 	Cycle_pending Cycle_status = "pending"
 	Cycle_active  Cycle_status = "active"
+	Cycle_paused  Cycle_status = "paused"
 	Cycle_closed  Cycle_status = "closed"
 )
 

@@ -43,7 +43,7 @@ func (h *handler) registerProfile(api huma.API) {
 		}
 		profile, err := h.svc.GetProfile(ctx, u.ID)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(profile, "ok")}, nil
 	})
@@ -71,7 +71,7 @@ func (h *handler) registerProfile(api huma.API) {
 			Avatar_url:   in.Body.Avatar_url,
 		}
 		if err := h.svc.PatchProfile(ctx, u.ID, patch); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "profile_updated")}, nil
 	})
@@ -95,7 +95,7 @@ func (h *handler) registerPassword(api huma.API) {
 			return &std_output{Status: 401, Body: response.Fail("unauthenticated")}, nil
 		}
 		if err := h.svc.ChangePassword(ctx, u.ID, in.Body.Old_password, in.Body.New_password); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "password_changed")}, nil
 	})
@@ -115,7 +115,7 @@ func (h *handler) registerTOTP(api huma.API) {
 		}
 		secret, qr_uri, err := h.svc.EnrollTOTP(ctx, u.ID)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]string{
 			"secret": secret,
@@ -139,7 +139,7 @@ func (h *handler) registerTOTP(api huma.API) {
 			return &std_output{Status: 401, Body: response.Fail("unauthenticated")}, nil
 		}
 		if err := h.svc.VerifyTOTP(ctx, u.ID, in.Body.Code); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "totp_enabled")}, nil
 	})
@@ -159,7 +159,7 @@ func (h *handler) registerTOTP(api huma.API) {
 			return &std_output{Status: 403, Body: response.Fail("forbidden")}, nil
 		}
 		if err := h.svc.DisableTOTP(ctx, u.ID); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "totp_disabled")}, nil
 	})
@@ -179,7 +179,7 @@ func (h *handler) registerSessions(api huma.API) {
 		}
 		sessions, err := h.svc.ListSessions(ctx, u.ID)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(sessions, "ok")}, nil
 	})
@@ -198,7 +198,7 @@ func (h *handler) registerSessions(api huma.API) {
 			return &std_output{Status: 401, Body: response.Fail("unauthenticated")}, nil
 		}
 		if err := h.svc.RevokeSession(ctx, in.ID, u.ID); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "session_revoked")}, nil
 	})
@@ -215,7 +215,7 @@ func (h *handler) registerSessions(api huma.API) {
 			return &std_output{Status: 401, Body: response.Fail("unauthenticated")}, nil
 		}
 		if err := h.svc.RevokeAllSessions(ctx, u.ID); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "sessions_revoked")}, nil
 	})

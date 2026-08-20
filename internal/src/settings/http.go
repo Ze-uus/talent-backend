@@ -25,7 +25,7 @@ func (h *handler) uploadAvatarHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseMultipartForm(maxMultipartMemory); err != nil {
-		response.WriteJSON(w, http.StatusBadRequest, response.Fail(err.Error()))
+		response.WriteJSON(w, http.StatusBadRequest, response.Fail("invalid_multipart_form"))
 		return
 	}
 
@@ -54,6 +54,10 @@ func (h *handler) uploadAvatarHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if errors.Is(err, media.ErrNotConfigured) {
 			status = http.StatusBadGateway
+		}
+		if status == http.StatusInternalServerError {
+			response.WriteError(w, err)
+			return
 		}
 		response.WriteJSON(w, status, response.Fail(err.Error()))
 		return

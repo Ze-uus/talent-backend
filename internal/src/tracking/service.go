@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Ze-uus/talent-backend/internal/domain"
+	"github.com/Ze-uus/talent-backend/internal/response"
 	"github.com/Ze-uus/talent-backend/internal/store"
 	ws "github.com/Ze-uus/talent-backend/internal/websocket"
 )
@@ -35,10 +36,10 @@ func (s *TrackingService) LogEvent(ctx context.Context, token, event_type, kpb_t
 	event_type = strings.TrimSpace(event_type)
 	idempotency_key = strings.TrimSpace(idempotency_key)
 	if event_type == "" {
-		return errors.New("event_type_required")
+		return response.Validation("event_type_required")
 	}
 	if idempotency_key == "" {
-		return errors.New("idempotency_key_required")
+		return response.Validation("idempotency_key_required")
 	}
 	link, cycle, _, err := s.activeTrackingContext(ctx, token)
 	if err != nil {

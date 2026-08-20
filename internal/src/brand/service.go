@@ -14,6 +14,7 @@ import (
 	"github.com/Ze-uus/talent-backend/internal/audit"
 	"github.com/Ze-uus/talent-backend/internal/jsonutil"
 	"github.com/Ze-uus/talent-backend/internal/media"
+	"github.com/Ze-uus/talent-backend/internal/response"
 	authpkg "github.com/Ze-uus/talent-backend/internal/src/auth"
 	"github.com/Ze-uus/talent-backend/internal/store"
 )
@@ -23,9 +24,9 @@ const max_contacts_per_brand = 3
 var ErrLogoUploadFailed = errors.New("logo_upload_failed")
 
 type BrandService struct {
-	st       store.Store
-	media    media.Uploader
-	auditor  *audit.Recorder
+	st      store.Store
+	media   media.Uploader
+	auditor *audit.Recorder
 }
 
 func New(s store.Store, up media.Uploader, auditor *audit.Recorder) *BrandService {
@@ -121,7 +122,7 @@ func (s *BrandService) AddContact(ctx context.Context, brand_id, first_name, las
 		}
 	}
 	if active_count >= max_contacts_per_brand {
-		return store.BrandContact{}, "", errors.New("max_contacts_reached")
+		return store.BrandContact{}, "", response.Validation("max_contacts_reached")
 	}
 
 	viewer_token, err := generateViewerToken()

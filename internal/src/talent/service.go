@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Ze-uus/talent-backend/internal/audit"
+	"github.com/Ze-uus/talent-backend/internal/response"
 	"github.com/Ze-uus/talent-backend/internal/store"
 )
 
@@ -186,7 +187,7 @@ func (s *TalentService) RequestExpansion(ctx context.Context, talent_id, cycle_i
 		return err
 	}
 	if assignment.Status != "active" {
-		return errors.New("assignment_not_active")
+		return response.Validation("assignment_not_active")
 	}
 	if s.auditor != nil {
 		return s.auditor.Record(ctx, audit.Entry{

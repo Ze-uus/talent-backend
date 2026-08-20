@@ -71,6 +71,9 @@ func BuildBudgetSlots(cycle store.Cycle, campaign store.Campaign, talents []stor
 		if talent.Max_tier > 0 && tier > talent.Max_tier {
 			tier = (talent.Max_tier / increment) * increment
 		}
+		if tier > math.MaxInt32 {
+			return nil, errors.New("tier_value_exceeds_supported_range")
+		}
 		if tier < minTier {
 			continue
 		}

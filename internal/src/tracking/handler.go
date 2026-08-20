@@ -64,10 +64,7 @@ func (h *handler) register(api huma.API) {
 			if errors.Is(err, ErrInvalidToken) || errors.Is(err, ErrPresentationUnavailable) {
 				return &std_output{Status: http.StatusNotFound, Body: response.Fail(response.ErrNotFound)}, nil
 			}
-			if err.Error() == "event_type_required" || err.Error() == "idempotency_key_required" {
-				return &std_output{Status: http.StatusUnprocessableEntity, Body: response.Fail(err.Error())}, nil
-			}
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "event_logged")}, nil
 	})

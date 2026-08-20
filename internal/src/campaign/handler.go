@@ -67,10 +67,7 @@ func (h *handler) registerCampaigns(api huma.API) {
 		}
 		created, err := h.svc.Create(ctx, c)
 		if err != nil {
-			if isContentValidationError(err) {
-				return &std_output{Status: http.StatusUnprocessableEntity, Body: response.Fail(err.Error())}, nil
-			}
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(created, "campaign_created")}, nil
 	})
@@ -94,7 +91,7 @@ func (h *handler) registerCampaigns(api huma.API) {
 		if u.Role == store.Role_campaign_manager {
 			campaigns, err := h.svc.st.GetCampaignsByManagerID(ctx, u.ID)
 			if err != nil {
-				return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+				return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 			}
 			return &std_output{Status: http.StatusOK, Body: response.Ok(campaigns, "ok")}, nil
 		}
@@ -103,7 +100,7 @@ func (h *handler) registerCampaigns(api huma.API) {
 		}
 		campaigns, err := h.svc.List(ctx, store.CampaignFilter{Status: in.Status, Brand_id: in.Brand_id, Limit: in.Limit, Offset: in.Offset})
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(campaigns, "ok")}, nil
 	})
@@ -123,7 +120,7 @@ func (h *handler) registerCampaigns(api huma.API) {
 		}
 		c, err := h.svc.Get(ctx, in.ID)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		if u.Role == store.Role_campaign_manager {
 			if !managerOwnsCampaign(ctx, h.svc.st, u.ID, in.ID) {
@@ -164,10 +161,7 @@ func (h *handler) registerCampaigns(api huma.API) {
 			Content:          in.Body.Content,
 		}
 		if err := h.svc.Patch(ctx, in.ID, patch); err != nil {
-			if isContentValidationError(err) {
-				return &std_output{Status: http.StatusUnprocessableEntity, Body: response.Fail(err.Error())}, nil
-			}
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "campaign_updated")}, nil
 	})
@@ -185,7 +179,7 @@ func (h *handler) registerCampaigns(api huma.API) {
 			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.Archive(ctx, in.ID); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "campaign_archived")}, nil
 	})
@@ -207,7 +201,7 @@ func (h *handler) registerCampaigns(api huma.API) {
 			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.AssignManager(ctx, in.Body.Manager_id, in.ID, u.ID); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "manager_assigned")}, nil
 	})
@@ -226,7 +220,7 @@ func (h *handler) registerCampaigns(api huma.API) {
 			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.UnassignManager(ctx, in.Mid, in.ID); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "manager_unassigned")}, nil
 	})
@@ -259,14 +253,7 @@ func (h *handler) registerCycles(api huma.API) {
 		}
 		created, err := h.svc.CreateCycle(ctx, c)
 		if err != nil {
-			switch err.Error() {
-			case "invalid_campaign_cpa", "target_cpa_exceeds_max_cpa", "cycle_budget_below_target_cpa":
-				return &std_output{Status: http.StatusUnprocessableEntity, Body: response.Fail(err.Error())}, nil
-			}
-			if isContentValidationError(err) {
-				return &std_output{Status: http.StatusUnprocessableEntity, Body: response.Fail(err.Error())}, nil
-			}
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(created, "cycle_created")}, nil
 	})
@@ -291,7 +278,7 @@ func (h *handler) registerCycles(api huma.API) {
 		}
 		cycles, err := h.svc.ListCycles(ctx, in.ID)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(cycles, "ok")}, nil
 	})
@@ -317,7 +304,7 @@ func (h *handler) registerCycles(api huma.API) {
 		}
 		cycle, err := h.svc.GetCycle(ctx, in.Cid)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(cycle, "ok")}, nil
 	})
@@ -353,10 +340,7 @@ func (h *handler) registerCycles(api huma.API) {
 			patch.Content_override = &inherit
 		}
 		if err := h.svc.PatchCycle(ctx, in.Cid, patch); err != nil {
-			if isContentValidationError(err) {
-				return &std_output{Status: http.StatusUnprocessableEntity, Body: response.Fail(err.Error())}, nil
-			}
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "cycle_updated")}, nil
 	})
@@ -387,7 +371,7 @@ func (h *handler) registerCycles(api huma.API) {
 				return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 			}
 			if err := op.action(ctx, in.Cid); err != nil {
-				return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+				return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 			}
 			return &std_output{Status: http.StatusOK, Body: response.Ok(nil, op.msg)}, nil
 		})
@@ -407,7 +391,7 @@ func (h *handler) registerCycles(api huma.API) {
 			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.FinalisePayouts(ctx, in.Cid); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "payouts_finalised")}, nil
 	})
@@ -436,24 +420,6 @@ func managerOwnsCampaign(ctx context.Context, st store.Store, manager_id, campai
 		}
 	}
 	return false
-}
-
-func isContentValidationError(err error) bool {
-	switch err.Error() {
-	case "too_many_content_items",
-		"content_item_id_required",
-		"duplicate_content_item_id",
-		"content_html_not_allowed",
-		"too_many_content_images",
-		"too_many_content_links",
-		"invalid_content_image_url",
-		"content_link_id_required",
-		"duplicate_content_link_id",
-		"invalid_content_link_url":
-		return true
-	default:
-		return false
-	}
 }
 
 func (h *handler) uploadContentImagesHTTP(w http.ResponseWriter, r *http.Request) {
@@ -513,6 +479,10 @@ func (h *handler) uploadContentImagesHTTP(w http.ResponseWriter, r *http.Request
 		}
 		if errors.Is(err, media.ErrNotConfigured) {
 			status = http.StatusBadGateway
+		}
+		if status == http.StatusInternalServerError {
+			response.WriteError(w, err)
+			return
 		}
 		response.WriteJSON(w, status, response.Fail(err.Error()))
 		return

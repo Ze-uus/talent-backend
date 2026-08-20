@@ -52,7 +52,7 @@ func (h *handler) registerUsers(api huma.API) {
 		}
 		users, err := h.svc.ListUsers(ctx, store.UserFilter{Role: in.Role, Active: active, Status: in.Status})
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(users, "ok")}, nil
 	})
@@ -71,7 +71,7 @@ func (h *handler) registerUsers(api huma.API) {
 		}
 		u, err := h.svc.GetUser(ctx, in.ID)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(u, "ok")}, nil
 	})
@@ -93,10 +93,7 @@ func (h *handler) registerUsers(api huma.API) {
 			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.PatchUser(ctx, in.ID, store.UserPatch{Full_name: in.Body.Full_name, Active: in.Body.Active}); err != nil {
-			if errors.Is(err, err_invalid_active_transition) {
-				return &std_output{Status: 400, Body: response.Fail(err.Error())}, nil
-			}
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "user_updated")}, nil
 	})
@@ -134,7 +131,7 @@ func (h *handler) registerUsers(api huma.API) {
 			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.SuspendUser(ctx, in.ID); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "user_suspended")}, nil
 	})
@@ -152,7 +149,7 @@ func (h *handler) registerUsers(api huma.API) {
 			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.BanUser(ctx, in.ID); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "user_banned")}, nil
 	})
@@ -170,7 +167,7 @@ func (h *handler) registerUsers(api huma.API) {
 			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.ReinstateUser(ctx, in.ID); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "user_reinstated")}, nil
 	})
@@ -188,7 +185,7 @@ func (h *handler) registerUsers(api huma.API) {
 			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.SoftDeleteUser(ctx, in.ID); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "user_deleted")}, nil
 	})
@@ -212,7 +209,7 @@ func (h *handler) registerTalents(api huma.API) {
 		}
 		talents, err := h.svc.ListTalents(ctx, store.TalentFilter{Status: in.Status, Category: in.Category, Limit: in.Limit, Offset: in.Offset})
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(talents, "ok")}, nil
 	})
@@ -234,7 +231,7 @@ func (h *handler) registerTalents(api huma.API) {
 			if errors.Is(err, err_talent_not_found) {
 				return &std_output{Status: http.StatusNotFound, Body: response.Fail(response.ErrNotFound)}, nil
 			}
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(t, "ok")}, nil
 	})
@@ -258,7 +255,7 @@ func (h *handler) registerTalents(api huma.API) {
 			if errors.Is(err, err_talent_not_found) {
 				return &std_output{Status: 404, Body: response.Fail(err.Error())}, nil
 			}
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "talent_approved")}, nil
 	})
@@ -276,7 +273,7 @@ func (h *handler) registerTalents(api huma.API) {
 			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.RejectTalent(ctx, in.ID); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "talent_rejected")}, nil
 	})
@@ -310,7 +307,7 @@ func (h *handler) registerTalents(api huma.API) {
 			Category:      in.Body.Category,
 		}
 		if err := h.svc.PatchTalent(ctx, in.ID, patch); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "talent_updated")}, nil
 	})
@@ -328,7 +325,7 @@ func (h *handler) registerTalents(api huma.API) {
 			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.SuspendTalent(ctx, in.ID); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "talent_suspended")}, nil
 	})
@@ -346,7 +343,7 @@ func (h *handler) registerTalents(api huma.API) {
 			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.ReinstateTalent(ctx, in.ID); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "talent_reinstated")}, nil
 	})
@@ -370,7 +367,7 @@ func (h *handler) registerViewers(api huma.API) {
 		}
 		v := store.CampaignViewer{Campaign_id: in.ID, Name: in.Body.Name, Active: true}
 		if err := h.svc.CreateViewer(ctx, v); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "viewer_created")}, nil
 	})
@@ -389,7 +386,7 @@ func (h *handler) registerViewers(api huma.API) {
 		}
 		viewers, err := h.svc.ListViewers(ctx, in.ID)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(viewers, "ok")}, nil
 	})
@@ -412,7 +409,7 @@ func (h *handler) registerViewers(api huma.API) {
 			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.PatchViewer(ctx, in.Vid, store.ViewerPatch{Name: in.Body.Name, Active: in.Body.Active}); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "viewer_updated")}, nil
 	})
@@ -436,7 +433,7 @@ func (h *handler) registerViewers(api huma.API) {
 		}
 		p := store.ViewerPassword{Viewer_id: in.Vid, Label: in.Body.Label, Password_hash: in.Body.Password_hash, Active: true}
 		if err := h.svc.AddViewerPassword(ctx, p); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "password_added")}, nil
 	})
@@ -456,7 +453,7 @@ func (h *handler) registerViewers(api huma.API) {
 		}
 		passwords, err := h.svc.ListViewerPasswords(ctx, in.Vid)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(passwords, "ok")}, nil
 	})
@@ -493,7 +490,7 @@ func (h *handler) registerViewers(api huma.API) {
 			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.DeactivateViewerPassword(ctx, in.Pid); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "password_deactivated")}, nil
 	})
@@ -526,7 +523,7 @@ func (h *handler) registerAudit(api huma.API) {
 			Limit:       in.Limit,
 		})
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(entries, "ok")}, nil
 	})

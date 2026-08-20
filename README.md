@@ -19,7 +19,7 @@ applicants each time.
 1. Admin creates a campaign (type: Direct Traffic or Lead Validation)
 2. Admin creates Cycle 1 with a cycle budget → Waterfall Algorithm generates tier slots
 3. Admin runs the Assignment Solver → Hungarian Algorithm returns optimal talent→slot matching
-4. Admin reviews and confirms assignments (manual overrides are audit-logged)
+4. Admin reviews and confirms assignments (manual overrides are audit-logged), or adds a human directly even if the solver did not recommend them
 5. Assigned talents receive a unique tracking link and campaign brief
 6. Talent shares the link — the public frontend renders content from `GET /t/:token`
 7. The frontend records page views, CTA clicks, leads, and purchases via `POST /t/:token`
@@ -185,7 +185,7 @@ scaloo/
 │   │   └── rate-limit.go
 │   ├── src/              ← all route packages (same structure each)
 │   │   ├── auth/         ← service.go, handler.go, router.go
-│   │   ├── assignment/   ← solver, confirm, expand
+│   │   ├── assignment/   ← solver, confirm, manual add
 │   │   ├── campaign/     ← campaign + cycle CRUD
 │   │   └── talent/       ← talent CRUD, approval, self-service
 │   ├── store/

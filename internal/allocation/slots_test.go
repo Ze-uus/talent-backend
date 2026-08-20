@@ -74,3 +74,19 @@ func TestBuildBudgetSlots_NoActiveTalents(t *testing.T) {
 		t.Fatalf("expected no slots, got %d", len(slots))
 	}
 }
+
+func TestBuildBudgetSlots_RejectsTierOutsideDatabaseRange(t *testing.T) {
+	cycle := store.Cycle{ID: "cycle-1", Cycle_budget: 3_000_000_000}
+	campaign := store.Campaign{
+		Cycle_length: 7,
+		Target_cpa:   1_000_000_000,
+		Max_cpa:      1_000_000_000,
+	}
+	talents := []store.Talent{{
+		ID: "talent-1", Category: store.Category_community, Status: store.Status_active,
+	}}
+	_, err := allocation.BuildBudgetSlots(cycle, campaign, talents)
+	if err == nil || err.Error() != "tier_value_exceeds_supported_range" {
+		t.Fatalf("expected tier range error, got %v", err)
+	}
+}

@@ -337,7 +337,7 @@ func TestCreate_LooksUpBrandByUUID(t *testing.T) {
 		Campaign_type: store.Type_direct_traffic,
 		Total_budget:  5_000_000,
 		Target_cpa:    1_200_000,
-		Max_cpa:       15_000_000,
+		Max_cpa:       5_000_000,
 		Audience:      "all,state:Enugu,zone:SE",
 		Cycle_length:  7,
 		Content: []store.ContentItem{{
@@ -403,13 +403,14 @@ func TestGet_IncludesCampaignManagers(t *testing.T) {
 func TestCreateCycle_SetsIDAndNumber(t *testing.T) {
 	ms := &mockStore{
 		campaign: store.Campaign{
-			ID:            "camp-1",
-			Human_id:      "NEW-26-01",
-			Campaign_type: store.Type_direct_traffic,
-			Cycle_length:  7,
-			Target_cpa:    150000,
-			Max_cpa:       300000,
-			Urgency_level: store.Urgency_normal,
+			ID:               "camp-1",
+			Human_id:         "NEW-26-01",
+			Campaign_type:    store.Type_direct_traffic,
+			Cycle_length:     7,
+			Target_cpa:       150000,
+			Max_cpa:          300000,
+			Remaining_budget: 300000,
+			Urgency_level:    store.Urgency_normal,
 		},
 		cycles: []store.Cycle{},
 	}
@@ -458,6 +459,17 @@ func TestPatchCycleClearsContentOverride(t *testing.T) {
 	}
 	if ms.cycle.Content_override != nil {
 		t.Fatalf("expected override to be cleared, got %+v", ms.cycle.Content_override)
+	}
+}
+
+func TestPauseCycleUsesSupportedPausedStatus(t *testing.T) {
+	ms := &mockStore{cycle: store.Cycle{ID: "cycle-1", Status: store.Cycle_active}}
+	svc := campaign.New(ms, nil, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)), nil, nil, nil)
+	if err := svc.PauseCycle(context.Background(), "cycle-1"); err != nil {
+		t.Fatal(err)
+	}
+	if ms.cycle.Status != store.Cycle_paused {
+		t.Fatalf("status=%q", ms.cycle.Status)
 	}
 }
 

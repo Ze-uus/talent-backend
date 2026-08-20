@@ -2,7 +2,6 @@ package admin
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"time"
 
@@ -10,13 +9,14 @@ import (
 	"github.com/Ze-uus/talent-backend/internal/baseline"
 	"github.com/Ze-uus/talent-backend/internal/domain"
 	"github.com/Ze-uus/talent-backend/internal/mail"
+	"github.com/Ze-uus/talent-backend/internal/response"
 	"github.com/Ze-uus/talent-backend/internal/store"
 	ws "github.com/Ze-uus/talent-backend/internal/websocket"
 )
 
 var (
-	err_invalid_active_transition = errors.New("invalid_active_transition")
-	err_talent_not_found          = errors.New("not_found")
+	err_invalid_active_transition = response.Validation("invalid_active_transition")
+	err_talent_not_found          = response.NotFound("not_found")
 )
 
 type AdminService struct {

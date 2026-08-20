@@ -31,7 +31,7 @@ func (h *handler) createBrandHTTP(w http.ResponseWriter, r *http.Request) {
 
 	name, industry, description, website, logo, err := parseBrandWrite(r)
 	if err != nil {
-		response.WriteJSON(w, http.StatusBadRequest, response.Fail(err.Error()))
+		response.WriteJSON(w, http.StatusBadRequest, response.Fail("invalid_request"))
 		return
 	}
 	if strings.TrimSpace(name) == "" {
@@ -45,7 +45,7 @@ func (h *handler) createBrandHTTP(w http.ResponseWriter, r *http.Request) {
 			response.WriteJSON(w, http.StatusBadGateway, response.Fail(err.Error()))
 			return
 		}
-		response.WriteJSON(w, http.StatusInternalServerError, response.Fail(err.Error()))
+		response.WriteError(w, err)
 		return
 	}
 	response.WriteJSON(w, http.StatusOK, response.Ok(b, "brand_created"))
@@ -64,7 +64,7 @@ func (h *handler) patchBrandHTTP(w http.ResponseWriter, r *http.Request) {
 
 	patch, logo, err := parseBrandPatch(r)
 	if err != nil {
-		response.WriteJSON(w, http.StatusBadRequest, response.Fail(err.Error()))
+		response.WriteJSON(w, http.StatusBadRequest, response.Fail("invalid_request"))
 		return
 	}
 
@@ -74,7 +74,7 @@ func (h *handler) patchBrandHTTP(w http.ResponseWriter, r *http.Request) {
 			response.WriteJSON(w, http.StatusBadGateway, response.Fail(err.Error()))
 			return
 		}
-		response.WriteJSON(w, http.StatusInternalServerError, response.Fail(err.Error()))
+		response.WriteError(w, err)
 		return
 	}
 	response.WriteJSON(w, http.StatusOK, response.Ok(b, "brand_updated"))
@@ -92,7 +92,7 @@ func (h *handler) uploadLogoHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	logo, err := readLogoFile(r)
 	if err != nil {
-		response.WriteJSON(w, http.StatusBadRequest, response.Fail(err.Error()))
+		response.WriteJSON(w, http.StatusBadRequest, response.Fail("invalid_multipart_form"))
 		return
 	}
 	if logo == nil {
@@ -107,12 +107,16 @@ func (h *handler) uploadLogoHTTP(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, media.ErrNotConfigured) {
 			status = http.StatusBadGateway
 		}
+		if status == http.StatusInternalServerError {
+			response.WriteError(w, err)
+			return
+		}
 		response.WriteJSON(w, status, response.Fail(err.Error()))
 		return
 	}
 	b, err := h.svc.st.GetBrandByID(r.Context(), id)
 	if err != nil {
-		response.WriteJSON(w, http.StatusInternalServerError, response.Fail(err.Error()))
+		response.WriteError(w, err)
 		return
 	}
 	response.WriteJSON(w, http.StatusOK, response.Ok(b, "logo_updated"))

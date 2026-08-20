@@ -2,13 +2,13 @@ package settings
 
 import (
 	"context"
-	"errors"
 	"io"
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/Ze-uus/talent-backend/internal/media"
+	"github.com/Ze-uus/talent-backend/internal/response"
 	authsvc "github.com/Ze-uus/talent-backend/internal/src/auth"
 	"github.com/Ze-uus/talent-backend/internal/store"
 )
@@ -64,7 +64,7 @@ func (s *SettingsService) ChangePassword(ctx context.Context, user_id, old_pw, n
 		return err
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(u.Password_hash), []byte(old_pw)); err != nil {
-		return errors.New("invalid_password")
+		return response.Unauthorized("invalid_password")
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(new_pw), 12)
 	if err != nil {
@@ -84,7 +84,7 @@ func (s *SettingsService) RevokeSession(ctx context.Context, session_id, user_id
 		return err
 	}
 	if sess.User_id != user_id {
-		return errors.New("forbidden")
+		return response.Forbidden("forbidden")
 	}
 	return s.st.InvalidateSession(ctx, session_id)
 }

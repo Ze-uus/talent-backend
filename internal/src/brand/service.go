@@ -5,27 +5,51 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"fmt"
+	"io"
 	"strings"
 
-	authpkg "github.com/Ze-uus/talent-backend/internal/src/auth"
+	"github.com/google/uuid"
+
+	"github.com/Ze-uus/talent-backend/internal/audit"
 	"github.com/Ze-uus/talent-backend/internal/jsonutil"
+	"github.com/Ze-uus/talent-backend/internal/media"
+	"github.com/Ze-uus/talent-backend/internal/response"
+	authpkg "github.com/Ze-uus/talent-backend/internal/src/auth"
 	"github.com/Ze-uus/talent-backend/internal/store"
 )
 
 const max_contacts_per_brand = 3
 
+var ErrLogoUploadFailed = errors.New("logo_upload_failed")
+
 type BrandService struct {
-	st store.Store
+	st      store.Store
+	media   media.Uploader
+	auditor *audit.Recorder
 }
 
-func New(s store.Store) *BrandService { return &BrandService{st: s} }
+func New(s store.Store, up media.Uploader, auditor *audit.Recorder) *BrandService {
+	if up == nil {
+		up = media.DisabledUploader{}
+	}
+	return &BrandService{st: s, media: up, auditor: auditor}
+}
 
-func (s *BrandService) Create(ctx context.Context, name, industry, description, website string) (store.Brand, error) {
+// LogoFile is an optional image upload for brand create/patch.
+type LogoFile struct {
+	Body        io.Reader
+	ContentType string
+}
+
+func (s *BrandService) Create(ctx context.Context, name, industry, description, website string, logo *LogoFile) (store.Brand, error) {
 	shortcode, err := s.generateShortcode(ctx, name)
 	if err != nil {
 		return store.Brand{}, err
 	}
+	id := uuid.NewString()
 	b := store.Brand{
+		ID:          id,
 		Name:        name,
 		Shortcode:   shortcode,
 		Industry:    industry,
@@ -36,7 +60,54 @@ func (s *BrandService) Create(ctx context.Context, name, industry, description, 
 	if err := s.st.CreateBrand(ctx, b); err != nil {
 		return store.Brand{}, err
 	}
-	return s.st.GetBrandByShortcode(ctx, shortcode)
+	created, err := s.st.GetBrandByShortcode(ctx, shortcode)
+	if err != nil {
+		return store.Brand{}, err
+	}
+	if logo != nil && logo.Body != nil {
+		if err := s.UpdateLogo(ctx, created.ID, logo.Body, logo.ContentType); err != nil {
+			return created, fmt.Errorf("%w: %v", ErrLogoUploadFailed, err)
+		}
+		return s.st.GetBrandByID(ctx, created.ID)
+	}
+	return created, nil
+}
+
+func (s *BrandService) Patch(ctx context.Context, id string, patch store.BrandPatch, logo *LogoFile) (store.Brand, error) {
+	if err := s.st.UpdateBrand(ctx, id, patch); err != nil {
+		return store.Brand{}, err
+	}
+	if logo != nil && logo.Body != nil {
+		if err := s.UpdateLogo(ctx, id, logo.Body, logo.ContentType); err != nil {
+			b, _ := s.st.GetBrandByID(ctx, id)
+			return b, fmt.Errorf("%w: %v", ErrLogoUploadFailed, err)
+		}
+	}
+	return s.st.GetBrandByID(ctx, id)
+}
+
+func (s *BrandService) UpdateLogo(ctx context.Context, brandID string, body io.Reader, contentType string) error {
+	if _, err := s.st.GetBrandByID(ctx, brandID); err != nil {
+		return err
+	}
+	if err := media.ValidateContentType(contentType); err != nil {
+		return err
+	}
+	fileName, err := media.NewFileName(uuid.NewString(), contentType)
+	if err != nil {
+		return err
+	}
+	res, err := s.media.Upload(ctx, media.UploadInput{
+		Folder:      media.FolderBrand(brandID),
+		FileName:    fileName,
+		ContentType: contentType,
+		Body:        body,
+	})
+	if err != nil {
+		return err
+	}
+	url := res.URL
+	return s.st.UpdateBrand(ctx, brandID, store.BrandPatch{Logo_url: &url})
 }
 
 func (s *BrandService) AddContact(ctx context.Context, brand_id, first_name, last_name, role, email, whatsapp string) (store.BrandContact, string, error) {
@@ -51,7 +122,7 @@ func (s *BrandService) AddContact(ctx context.Context, brand_id, first_name, las
 		}
 	}
 	if active_count >= max_contacts_per_brand {
-		return store.BrandContact{}, "", errors.New("max_contacts_reached")
+		return store.BrandContact{}, "", response.Validation("max_contacts_reached")
 	}
 
 	viewer_token, err := generateViewerToken()
@@ -105,13 +176,22 @@ func (s *BrandService) RemoveContact(ctx context.Context, contact_id, actor_id s
 	if err := s.st.DeactivateBrandContact(ctx, contact_id); err != nil {
 		return err
 	}
-	_ = s.st.WriteAuditLog(ctx, store.AuditLog{
-		Actor_id:     actor_id,
-		Action_type:  "brand_contact_removed",
-		Entity_type:  "brand_contact",
-		Entity_id:    contact_id,
-		Before_state: jsonutil.Marshal(contact),
-	})
+	if s.auditor != nil {
+		_ = s.auditor.Record(ctx, audit.Entry{
+			Action:      "brand_contact_removed",
+			Entity_type: "brand_contact",
+			Entity_id:   contact_id,
+			Before:      contact,
+		})
+	} else {
+		_ = s.st.WriteAuditLog(ctx, store.AuditLog{
+			Actor_id:     actor_id,
+			Action_type:  "brand_contact_removed",
+			Entity_type:  "brand_contact",
+			Entity_id:    contact_id,
+			Before_state: jsonutil.Marshal(contact),
+		})
+	}
 	return nil
 }
 
@@ -180,4 +260,3 @@ func generateViewerToken() (string, error) {
 	}
 	return base64.URLEncoding.EncodeToString(b)[:24], nil
 }
-

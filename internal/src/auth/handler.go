@@ -56,13 +56,14 @@ func (h *handler) registerTalentAuth(api huma.API) {
 		Security:    []map[string][]string{},
 	}, func(ctx context.Context, in *struct {
 		Body struct {
-			Email     string `json:"email"`
-			Password  string `json:"password"`
-			Full_name string `json:"full_name"`
+			Email        string `json:"email"`
+			Password     string `json:"password"`
+			Full_name    string `json:"full_name"`
+			Phone_number string `json:"phone_number,omitempty"`
 		}
 	}) (*std_output, error) {
-		if err := h.svc.RegisterTalent(ctx, in.Body.Email, in.Body.Password, in.Body.Full_name); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+		if err := h.svc.RegisterTalent(ctx, in.Body.Email, in.Body.Password, in.Body.Full_name, in.Body.Phone_number); err != nil {
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "registration_pending_approval")}, nil
 	})
@@ -94,6 +95,10 @@ func (h *handler) registerTalentAuth(api huma.API) {
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]any{
 			"token":              result.Token,
+			"user_id":            result.User_id,
+			"role":               result.Role,
+			"status":             result.Status,
+			"active":             result.Active,
 			"require_totp_setup": result.Require_totp_setup,
 			"totp_recheck_due":   result.Totp_recheck_due,
 		}, "login_success")}, nil
@@ -110,7 +115,7 @@ func (h *handler) registerTalentAuth(api huma.API) {
 	}, func(ctx context.Context, _ *struct{}) (*std_output, error) {
 		auth_url, state, err := h.svc.GoogleAuthURL()
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]string{
 			"auth_url": auth_url,
@@ -139,6 +144,10 @@ func (h *handler) registerTalentAuth(api huma.API) {
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]any{
 			"token":              result.Token,
+			"user_id":            result.User_id,
+			"role":               result.Role,
+			"status":             result.Status,
+			"active":             result.Active,
 			"require_totp_setup": result.Require_totp_setup,
 		}, "login_success")}, nil
 	})
@@ -182,7 +191,7 @@ func (h *handler) registerStaffInvites(api huma.API) {
 		}
 		token, err := h.svc.InviteSuperAdmin(ctx, in.Body.Email, in.Body.Full_name)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]string{"invite_token": token}, "invite_sent")}, nil
 	})
@@ -205,7 +214,7 @@ func (h *handler) registerStaffInvites(api huma.API) {
 		}
 		token, err := h.svc.InviteAdmin(ctx, in.Body.Email, in.Body.Full_name)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]string{"invite_token": token}, "invite_sent")}, nil
 	})
@@ -228,7 +237,7 @@ func (h *handler) registerStaffInvites(api huma.API) {
 		}
 		token, err := h.svc.InviteCampaignManager(ctx, in.Body.Email, in.Body.Full_name)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]string{"invite_token": token}, "invite_sent")}, nil
 	})
@@ -248,7 +257,7 @@ func (h *handler) registerStaffInvites(api huma.API) {
 	}) (*std_output, error) {
 		u, err := h.svc.VerifyInvite(ctx, in.Body.Invite_token, in.Body.Password)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]string{
 			"id":   u.ID,
@@ -273,7 +282,7 @@ func (h *handler) registerTOTP(api huma.API) {
 		}
 		secret, qr_uri, err := h.svc.EnrollTOTP(ctx, u.ID)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]string{
 			"secret": secret,
@@ -297,7 +306,7 @@ func (h *handler) registerTOTP(api huma.API) {
 			return &std_output{Status: 401, Body: response.Fail("unauthenticated")}, nil
 		}
 		if err := h.svc.VerifyAndEnableTOTP(ctx, u.ID, in.Body.Code); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "totp_activated")}, nil
 	})
@@ -352,6 +361,14 @@ func mapLoginError(err error) (status int, message string) {
 		return http.StatusForbidden, err_account_pending.Error()
 	case errors.Is(err, err_account_suspended):
 		return http.StatusForbidden, err_account_suspended.Error()
+	case errors.Is(err, err_account_banned):
+		return http.StatusForbidden, err_account_banned.Error()
+	case errors.Is(err, err_account_deleted):
+		return http.StatusForbidden, err_account_deleted.Error()
+	case errors.Is(err, err_account_rejected):
+		return http.StatusForbidden, err_account_rejected.Error()
+	case errors.Is(err, err_account_invited):
+		return http.StatusForbidden, err_account_invited.Error()
 	default:
 		return http.StatusInternalServerError, "login_failed"
 	}

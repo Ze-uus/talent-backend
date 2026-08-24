@@ -4,17 +4,22 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Ze-uus/talent-backend/internal/domain"
+	"github.com/Ze-uus/talent-backend/internal/response"
 	"github.com/Ze-uus/talent-backend/internal/store"
 	ws "github.com/Ze-uus/talent-backend/internal/websocket"
 )
 
-// ErrDuplicateEvent is returned when the idempotency_key was already recorded.
-var ErrDuplicateEvent = errors.New("duplicate_event")
+var (
+	ErrDuplicateEvent          = errors.New("duplicate_event")
+	ErrInvalidToken            = errors.New("invalid_token")
+	ErrPresentationUnavailable = errors.New("presentation_unavailable")
+)
 
 type TrackingService struct {
 	st            store.Store
@@ -28,14 +33,15 @@ func New(s store.Store, conversion_ch chan<- domain.ConversionEvent, log *slog.L
 
 // LogEvent validates the token, records a conversion event, and pushes a WS shard.
 func (s *TrackingService) LogEvent(ctx context.Context, token, event_type, kpb_type, idempotency_key string) error {
-	link, err := s.st.GetTrackingLinkByToken(ctx, token)
-	if err != nil {
-		return errors.New("invalid_token")
+	event_type = strings.TrimSpace(event_type)
+	idempotency_key = strings.TrimSpace(idempotency_key)
+	if event_type == "" {
+		return response.Validation("event_type_required")
 	}
-	if !link.Active {
-		return errors.New("token_inactive")
+	if idempotency_key == "" {
+		return response.Validation("idempotency_key_required")
 	}
-	cycle, err := s.st.GetCycleByID(ctx, link.Cycle_id)
+	link, cycle, _, err := s.activeTrackingContext(ctx, token)
 	if err != nil {
 		return err
 	}
@@ -77,6 +83,58 @@ func (s *TrackingService) LogEvent(ctx context.Context, token, event_type, kpb_t
 	}, s.log, "conversion_ch full, real-time event dropped", "talent_id", link.Talent_id)
 
 	return nil
+}
+
+func (s *TrackingService) GetPresentation(ctx context.Context, token string) (PresentationView, error) {
+	_, cycle, campaign, err := s.activeTrackingContext(ctx, token)
+	if err != nil {
+		return PresentationView{}, err
+	}
+	brand, err := s.st.GetBrandByID(ctx, campaign.Brand_id)
+	if err != nil {
+		return PresentationView{}, err
+	}
+	kpbLabels := make([]string, 0, len(cycle.KPB_config))
+	for _, definition := range cycle.KPB_config {
+		kpbLabels = append(kpbLabels, definition.Label)
+	}
+	return PresentationView{
+		Brand: PresentationBrand{
+			Name: brand.Name, Industry: brand.Industry, Description: brand.Description,
+			Website: brand.Website, LogoURL: brand.Logo_url,
+		},
+		Campaign: PresentationCampaign{
+			HumanID: campaign.Human_id, Name: campaign.Name,
+			CampaignType: campaign.Campaign_type, Audience: campaign.Audience,
+		},
+		Cycle: PresentationCycle{
+			HumanID: cycle.Human_id, CycleNumber: cycle.Cycle_number,
+			CycleObjective: cycle.Cycle_objective, CampaignType: cycle.Campaign_type,
+			KPBLabels: kpbLabels, StartDate: cycle.Start_date, EndDate: cycle.End_date,
+		},
+		Content: store.EffectiveContent(campaign, cycle),
+	}, nil
+}
+
+func (s *TrackingService) activeTrackingContext(ctx context.Context, token string) (store.TrackingLink, store.Cycle, store.Campaign, error) {
+	link, err := s.st.GetTrackingLinkByToken(ctx, strings.TrimSpace(token))
+	if err != nil || !link.Active {
+		return store.TrackingLink{}, store.Cycle{}, store.Campaign{}, ErrInvalidToken
+	}
+	cycle, err := s.st.GetCycleByID(ctx, link.Cycle_id)
+	if err != nil {
+		return store.TrackingLink{}, store.Cycle{}, store.Campaign{}, err
+	}
+	campaign, err := s.st.GetCampaignByID(ctx, link.Campaign_id)
+	if err != nil {
+		return store.TrackingLink{}, store.Cycle{}, store.Campaign{}, err
+	}
+	if cycle.Campaign_id != campaign.ID ||
+		cycle.Status != store.Cycle_active ||
+		campaign.Status != store.Campaign_active {
+		return store.TrackingLink{}, store.Cycle{}, store.Campaign{}, ErrPresentationUnavailable
+	}
+	return link, cycle, campaign, nil
 }
 
 func isUniqueViolation(err error) bool {

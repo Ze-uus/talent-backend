@@ -29,7 +29,7 @@ type mockStore struct {
 	byViewer map[string]string // viewer_token → brand_contact.id
 
 	brand_contacts map[string]store.BrandContact // keyed by id
-	talents        map[string]store.Talent        // keyed by user_id
+	talents        map[string]store.Talent       // keyed by user_id
 }
 
 func newMock() *mockStore {
@@ -168,6 +168,12 @@ func (m *mockStore) UpdateUser(ctx context.Context, id string, patch store.UserP
 	}
 	if patch.Active != nil {
 		u.Active = *patch.Active
+	}
+	if patch.Status != nil {
+		u.Status = store.User_status(*patch.Status)
+	}
+	if patch.Deleted_at != nil {
+		u.Deleted_at = patch.Deleted_at
 	}
 	m.users[id] = u
 	return nil
@@ -308,11 +314,24 @@ func (m *mockStore) RegenerateBrandContactPassword(_ context.Context, _ string, 
 func (m *mockStore) ValidateBrandContactAccess(_ context.Context, _, _ string) (store.BrandContact, error) {
 	return store.BrandContact{}, errors.New("not_implemented")
 }
-func (m *mockStore) CreateTalent(_ context.Context, _ store.Talent) error {
-	return errors.New("not_implemented")
+func (m *mockStore) CreateTalent(_ context.Context, t store.Talent) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if t.ID == "" {
+		t.ID = "t_" + t.User_id
+	}
+	m.talents[t.User_id] = t
+	return nil
 }
-func (m *mockStore) GetTalentByID(_ context.Context, _ string) (store.Talent, error) {
-	return store.Talent{}, errors.New("not_implemented")
+func (m *mockStore) GetTalentByID(_ context.Context, id string) (store.Talent, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, t := range m.talents {
+		if t.ID == id {
+			return t, nil
+		}
+	}
+	return store.Talent{}, errors.New("not_found")
 }
 func (m *mockStore) ListTalents(_ context.Context, _ store.TalentFilter) ([]store.Talent, error) {
 	return nil, errors.New("not_implemented")
@@ -356,6 +375,17 @@ func (m *mockStore) AssignManagerToCampaign(_ context.Context, _, _, _ string) e
 func (m *mockStore) UnassignManagerFromCampaign(_ context.Context, _, _ string) error {
 	return errors.New("not_implemented")
 }
+
+func (m *mockStore) ListManagersByCampaignID(_ context.Context, _ string) ([]store.User, error) {
+	return nil, nil
+}
+func (m *mockStore) TryRecordEmailDispatch(_ context.Context, _, _, _, _ string) (bool, error) {
+	return true, nil
+}
+func (m *mockStore) EmailDispatchExists(_ context.Context, _, _, _, _ string) (bool, error) {
+	return false, nil
+}
+
 func (m *mockStore) CreateCycle(_ context.Context, _ store.Cycle) error {
 	return errors.New("not_implemented")
 }
@@ -485,6 +515,19 @@ func (m *mockStore) DeactivateViewerPassword(_ context.Context, _ string) error 
 func (m *mockStore) WriteAuditLog(_ context.Context, _ store.AuditLog) error {
 	return errors.New("not_implemented")
 }
+
+func (m *mockStore) GetAuditLogByID(_ context.Context, _ string) (store.AuditLog, error) {
+	return store.AuditLog{}, nil
+}
+func (m *mockStore) ListAuditLogFiltered(_ context.Context, _ store.AuditFilter) ([]store.AuditLog, error) {
+	return nil, nil
+}
+func (m *mockStore) AppendAuditLog(_ context.Context, e store.AuditLog) (store.AuditLog, error) {
+	return e, nil
+}
+func (m *mockStore) GetAuditChainTip(_ context.Context) (string, int64, error) {
+	return "0000000000000000000000000000000000000000000000000000000000000000", 0, nil
+}
 func (m *mockStore) ListAuditLog(_ context.Context, _, _ string) ([]store.AuditLog, error) {
 	return nil, errors.New("not_implemented")
 }
@@ -501,7 +544,7 @@ func hashPassword(t *testing.T, plain string) string {
 }
 
 func newSvc(m *mockStore) *auth.AuthService {
-	return auth.NewAuthService(m, "Scaloo")
+	return auth.NewAuthService(m, "Scaloo", nil)
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -889,4 +932,89 @@ func generateTOTPSecret(t *testing.T) string {
 		t.Fatalf("generate totp key: %v", err)
 	}
 	return key.Secret()
+}
+
+func TestInviteAdmin_CreatesInvitedStatus(t *testing.T) {
+	m := newMock()
+	svc := newSvc(m)
+	tok, err := svc.InviteAdmin(context.Background(), "newadmin@scaloo.com", "New Admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tok == "" {
+		t.Fatal("expected invite token")
+	}
+	u, err := m.GetUserByEmail(context.Background(), "newadmin@scaloo.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Status != store.User_status_invited || u.Active {
+		t.Fatalf("expected invited+inactive, got status=%s active=%v", u.Status, u.Active)
+	}
+}
+
+func TestVerifyInvite_ActivatesUser(t *testing.T) {
+	m := newMock()
+	m.addUser(store.User{
+		ID:                "inv1",
+		Email:             "inv@scaloo.com",
+		Role:              store.Role_admin,
+		Active:            false,
+		Status:            store.User_status_invited,
+		Invite_token:      "good-tok",
+		Invite_expires_at: time.Now().Add(time.Hour),
+	})
+	svc := newSvc(m)
+	u, err := svc.VerifyInvite(context.Background(), "good-tok", "newpass123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Status != store.User_status_active || !u.Active {
+		t.Fatalf("expected active, got status=%s active=%v", u.Status, u.Active)
+	}
+}
+
+func TestLogin_Invited_ReturnsAccountInvited(t *testing.T) {
+	m := newMock()
+	m.addUser(store.User{
+		ID:            "inv2",
+		Email:         "pending@scaloo.com",
+		Password_hash: hashPassword(t, "pass"),
+		Role:          store.Role_campaign_manager,
+		Active:        false,
+		Status:        store.User_status_invited,
+	})
+	svc := newSvc(m)
+	_, err := svc.Login(context.Background(), "pending@scaloo.com", "pass", "", "", "")
+	if err == nil || err.Error() != "account_invited" {
+		t.Fatalf("expected account_invited, got %v", err)
+	}
+}
+
+func TestRegisterTalent_CreatesUserAndTalent(t *testing.T) {
+	m := newMock()
+	svc := newSvc(m)
+	if err := svc.RegisterTalent(context.Background(), "franklin@test.com", "password123", "Franklin", "+2348012345678"); err != nil {
+		t.Fatal(err)
+	}
+	u, err := m.GetUserByEmail(context.Background(), "franklin@test.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Role != store.Role_talent || u.Status != store.User_status_pending {
+		t.Fatalf("user=%+v", u)
+	}
+	if u.Phone_number != "+2348012345678" {
+		t.Fatalf("phone_number=%q", u.Phone_number)
+	}
+	talent, err := m.GetTalentByUserID(context.Background(), u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if talent.Status != store.Status_pending || talent.Category != store.Category_student {
+		t.Fatalf("talent=%+v", talent)
+	}
+	if talent.ID == "" || talent.User_id != u.ID {
+		t.Fatalf("talent ids=%+v", talent)
+	}
 }

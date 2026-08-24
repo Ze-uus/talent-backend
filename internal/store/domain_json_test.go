@@ -43,6 +43,28 @@ func TestUserJSONOmitsSecrets(t *testing.T) {
 	if !strings.Contains(s, `"Email":"a@b.com"`) {
 		t.Fatalf("expected public fields present: %s", s)
 	}
+	if strings.Contains(s, "Deleted_at") {
+		t.Fatalf("nil Deleted_at should be omitted: %s", s)
+	}
+}
+
+func TestUserJSONIncludesDeletedAtWhenSet(t *testing.T) {
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	u := store.User{
+		ID:         "id-2",
+		Email:      "b@c.com",
+		Role:       store.Role_admin,
+		Status:     store.User_status_deleted,
+		Deleted_at: &now,
+	}
+	b, err := json.Marshal(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	if !strings.Contains(s, `"Deleted_at"`) || !strings.Contains(s, "2026-07-25") {
+		t.Fatalf("expected Deleted_at present: %s", s)
+	}
 }
 
 func TestSessionJSONOmitsToken(t *testing.T) {

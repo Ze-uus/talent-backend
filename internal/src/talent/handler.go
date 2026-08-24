@@ -2,6 +2,7 @@ package talent
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -36,7 +37,7 @@ func (h *handler) register(api huma.API) {
 		}
 		profile, err := h.svc.GetProfile(ctx, u.ID)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(profile, "ok")}, nil
 	})
@@ -59,14 +60,14 @@ func (h *handler) register(api huma.API) {
 		}
 		talent, err := h.svc.GetProfile(ctx, u.ID)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		patch := store.TalentPatch{
 			Bio:           in.Body.Bio,
 			Portfolio_url: in.Body.Portfolio_url,
 		}
 		if err := h.svc.PatchProfile(ctx, talent.ID, patch); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "profile_updated")}, nil
 	})
@@ -84,11 +85,11 @@ func (h *handler) register(api huma.API) {
 		}
 		talent, err := h.svc.GetProfile(ctx, u.ID)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		cycles, err := h.svc.ListMyCycles(ctx, talent.ID)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(cycles, "ok")}, nil
 	})
@@ -108,16 +109,16 @@ func (h *handler) register(api huma.API) {
 		}
 		talent, err := h.svc.GetProfile(ctx, u.ID)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
-		assignment, link, err := h.svc.GetMyCycle(ctx, talent.ID, in.Cid)
+		view, err := h.svc.GetMyCycle(ctx, talent.ID, in.Cid)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			if errors.Is(err, ErrCycleNotAssigned) {
+				return &std_output{Status: http.StatusNotFound, Body: response.Fail(response.ErrNotFound)}, nil
+			}
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
-		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]any{
-			"assignment":    assignment,
-			"tracking_link": link,
-		}, "ok")}, nil
+		return &std_output{Status: http.StatusOK, Body: response.Ok(view, "ok")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -135,11 +136,14 @@ func (h *handler) register(api huma.API) {
 		}
 		talent, err := h.svc.GetProfile(ctx, u.ID)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		stats, err := h.svc.GetCycleStats(ctx, talent.ID, in.Cid)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			if errors.Is(err, ErrCycleNotAssigned) {
+				return &std_output{Status: http.StatusNotFound, Body: response.Fail(response.ErrNotFound)}, nil
+			}
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(stats, "ok")}, nil
 	})
@@ -159,10 +163,13 @@ func (h *handler) register(api huma.API) {
 		}
 		talent, err := h.svc.GetProfile(ctx, u.ID)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		if err := h.svc.RequestExpansion(ctx, talent.ID, in.Cid, u.ID); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			if errors.Is(err, ErrCycleNotAssigned) {
+				return &std_output{Status: http.StatusNotFound, Body: response.Fail(response.ErrNotFound)}, nil
+			}
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "expansion_requested")}, nil
 	})
@@ -180,11 +187,11 @@ func (h *handler) register(api huma.API) {
 		}
 		talent, err := h.svc.GetProfile(ctx, u.ID)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		history, err := h.svc.GetHistory(ctx, talent.ID)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(history, "ok")}, nil
 	})

@@ -12,15 +12,23 @@ const (
 	ErrSessionInactive    = "session_inactive"
 	ErrAccountPending     = "account_pending_approval"
 	ErrAccountSuspended   = "account_suspended"
+	ErrAccountBanned      = "account_banned"
+	ErrAccountDeleted     = "account_deleted"
+	ErrAccountRejected    = "account_rejected"
+	ErrAccountInvited     = "account_invited"
 	ErrInvalidInvite      = "invalid_or_expired_invite"
 	ErrViewerInvalid      = "invalid_viewer_credentials"
 	ErrMissingToken       = "missing_token"
 	ErrInsufficientRole   = "insufficient_role"
 
 	// Validation
-	ErrValidationFailed = "validation_failed"
-	ErrNotFound         = "not_found"
-	ErrConflict         = "conflict"
+	ErrValidationFailed     = "validation_failed"
+	ErrNotFound             = "not_found"
+	ErrConflict             = "conflict"
+	ErrInternal             = "internal_error"
+	ErrInvalidReference     = "invalid_reference"
+	ErrNumericOutOfRange    = "numeric_out_of_range"
+	ErrRequiredFieldMissing = "required_field_missing"
 
 	// Campaign / cycle
 	ErrCycleBudgetExceeds     = "cycle_budget_exceeds_remaining_campaign_budget"
@@ -33,7 +41,6 @@ const (
 	ErrPerformanceBelow50  = "performance_below_50_percent"
 
 	// General
-	ErrInternal           = "internal_error"
 	ErrRateLimited        = "rate_limit_exceeded"
 	ErrStreamNotSupported = "streaming_not_supported"
 )

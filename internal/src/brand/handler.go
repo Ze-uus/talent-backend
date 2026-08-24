@@ -28,29 +28,8 @@ func (h *handler) register(api huma.API) {
 }
 
 func (h *handler) registerAdmin(api huma.API) {
-	huma.Register(api, huma.Operation{
-		OperationID: "brands_create",
-		Method:      http.MethodPost,
-		Path:        "/admin/brands",
-		Summary:     "Create brand",
-		Tags:        []string{"brands"},
-	}, func(ctx context.Context, in *struct {
-		Body struct {
-			Name        string `json:"name"`
-			Industry    string `json:"industry"`
-			Description string `json:"description"`
-			Website     string `json:"website"`
-		}
-	}) (*std_output, error) {
-		if !isAdminOrAbove(ctx) {
-			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
-		}
-		b, err := h.svc.Create(ctx, in.Body.Name, in.Body.Industry, in.Body.Description, in.Body.Website)
-		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
-		}
-		return &std_output{Status: http.StatusOK, Body: response.Ok(b, "brand_created")}, nil
-	})
+	// Create + patch (+ optional logo) and dedicated logo upload are Chi routes
+	// — see registerHTTP — so JSON and multipart/form-data both work.
 
 	huma.Register(api, huma.Operation{
 		OperationID: "brands_list",
@@ -68,7 +47,7 @@ func (h *handler) registerAdmin(api huma.API) {
 		}
 		brands, err := h.svc.st.ListBrands(ctx, store.BrandFilter{Status: in.Status, Limit: in.Limit, Offset: in.Offset})
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(brands, "ok")}, nil
 	})
@@ -87,39 +66,9 @@ func (h *handler) registerAdmin(api huma.API) {
 		}
 		b, err := h.svc.st.GetBrandByID(ctx, in.ID)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(b, "ok")}, nil
-	})
-
-	huma.Register(api, huma.Operation{
-		OperationID: "brands_patch",
-		Method:      http.MethodPatch,
-		Path:        "/admin/brands/{id}",
-		Summary:     "Update brand",
-		Tags:        []string{"brands"},
-	}, func(ctx context.Context, in *struct {
-		ID   string `path:"id"`
-		Body struct {
-			Name        *string `json:"name,omitempty"`
-			Industry    *string `json:"industry,omitempty"`
-			Description *string `json:"description,omitempty"`
-			Website     *string `json:"website,omitempty"`
-		}
-	}) (*std_output, error) {
-		if !isAdminOrAbove(ctx) {
-			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
-		}
-		patch := store.BrandPatch{
-			Name:        in.Body.Name,
-			Industry:    in.Body.Industry,
-			Description: in.Body.Description,
-			Website:     in.Body.Website,
-		}
-		if err := h.svc.st.UpdateBrand(ctx, in.ID, patch); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
-		}
-		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "brand_updated")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -136,7 +85,7 @@ func (h *handler) registerAdmin(api huma.API) {
 		}
 		status := "suspended"
 		if err := h.svc.st.UpdateBrand(ctx, in.ID, store.BrandPatch{Status: &status}); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "brand_suspended")}, nil
 	})
@@ -155,7 +104,7 @@ func (h *handler) registerAdmin(api huma.API) {
 		}
 		status := "active"
 		if err := h.svc.st.UpdateBrand(ctx, in.ID, store.BrandPatch{Status: &status}); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "brand_reinstated")}, nil
 	})
@@ -176,7 +125,7 @@ func (h *handler) registerAdmin(api huma.API) {
 		}
 		contacts, err := h.svc.st.ListBrandContacts(ctx, in.ID)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(contacts, "ok")}, nil
 	})
@@ -202,7 +151,7 @@ func (h *handler) registerAdmin(api huma.API) {
 		}
 		contact, plain, err := h.svc.AddContact(ctx, in.ID, in.Body.First_name, in.Body.Last_name, in.Body.Role, in.Body.Email, in.Body.Whatsapp)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]any{
 			"contact":        contact,
@@ -225,7 +174,7 @@ func (h *handler) registerAdmin(api huma.API) {
 		}
 		c, err := h.svc.st.GetBrandContactByID(ctx, in.Cid)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(c, "ok")}, nil
 	})
@@ -258,7 +207,7 @@ func (h *handler) registerAdmin(api huma.API) {
 			Whatsapp_number: in.Body.Whatsapp_number,
 		}
 		if err := h.svc.st.UpdateBrandContact(ctx, in.Cid, patch); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "contact_updated")}, nil
 	})
@@ -278,7 +227,7 @@ func (h *handler) registerAdmin(api huma.API) {
 			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
 		if err := h.svc.RemoveContact(ctx, in.Cid, u.ID); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "contact_deactivated")}, nil
 	})
@@ -298,7 +247,7 @@ func (h *handler) registerAdmin(api huma.API) {
 		}
 		plain, err := h.svc.RegeneratePassword(ctx, in.Cid)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]string{"plain_password": plain}, "password_regenerated")}, nil
 	})
@@ -320,7 +269,7 @@ func (h *handler) registerBrandView(api huma.API) {
 		}
 		brand, campaigns, err := h.svc.GetDashboard(ctx, in.Token)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(map[string]any{
 			"brand":     brand,
@@ -344,7 +293,7 @@ func (h *handler) registerBrandView(api huma.API) {
 		}
 		metrics, err := h.svc.GetLiveMetrics(ctx, in.Cid)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(metrics, "ok")}, nil
 	})

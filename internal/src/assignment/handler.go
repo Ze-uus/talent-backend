@@ -38,7 +38,7 @@ func (h *handler) register(api huma.API) {
 		}
 		output, err := h.svc.RunSolver(ctx, in.Cid)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(output, "solver_complete")}, nil
 	})
@@ -53,9 +53,9 @@ func (h *handler) register(api huma.API) {
 		ID   string `path:"id"`
 		Cid  string `path:"cid"`
 		Body struct {
-			Confirmed    []ConfirmedAssignment `json:"confirmed"`
-			Solver_output SolverOutput         `json:"solver_output"`
-			Is_override  bool                  `json:"is_override"`
+			Confirmed     []ConfirmedAssignment `json:"confirmed"`
+			Solver_output SolverOutput          `json:"solver_output"`
+			Is_override   bool                  `json:"is_override"`
 		}
 	}) (*std_output, error) {
 		u, ok := ctxkeys.UserFromContext(ctx)
@@ -64,9 +64,31 @@ func (h *handler) register(api huma.API) {
 		}
 		err := h.svc.ConfirmAssignments(ctx, in.Cid, in.ID, u.ID, in.Body.Confirmed, in.Body.Solver_output, in.Body.Is_override)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "assignments_confirmed")}, nil
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "assignments_add_human",
+		Method:      http.MethodPost,
+		Path:        "/admin/campaigns/{id}/cycles/{cid}/humans",
+		Summary:     "Manually add a human to a cycle",
+		Tags:        []string{"assignments"},
+	}, func(ctx context.Context, in *struct {
+		ID   string `path:"id"`
+		Cid  string `path:"cid"`
+		Body AddHumanInput
+	}) (*std_output, error) {
+		u, ok := ctxkeys.UserFromContext(ctx)
+		if !ok || !isAdminRole(u.Role) {
+			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
+		}
+		view, err := h.svc.AddHuman(ctx, in.ID, in.Cid, u.ID, in.Body)
+		if err != nil {
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
+		}
+		return &std_output{Status: http.StatusCreated, Body: response.Ok(view, "human_assigned")}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -82,9 +104,9 @@ func (h *handler) register(api huma.API) {
 		if !isAdminOrAbove(ctx) {
 			return &std_output{Status: 403, Body: response.Fail("insufficient_role")}, nil
 		}
-		assignments, err := h.svc.st.ListAssignedTalents(ctx, in.Cid)
+		assignments, err := h.svc.ListCycleAssignments(ctx, in.ID, in.Cid)
 		if err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(assignments, "ok")}, nil
 	})
@@ -114,7 +136,7 @@ func (h *handler) register(api huma.API) {
 			Match_score:   in.Body.Match_score,
 		}
 		if err := h.svc.st.UpdateAssignment(ctx, in.Tid, in.Cid, patch); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "assignment_updated")}, nil
 	})
@@ -135,7 +157,7 @@ func (h *handler) register(api huma.API) {
 		}
 		status := "removed_payout"
 		if err := h.svc.st.UpdateAssignment(ctx, in.Tid, in.Cid, store.AssignmentPatch{Status: &status}); err != nil {
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "assignment_removed")}, nil
 	})

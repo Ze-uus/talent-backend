@@ -43,8 +43,9 @@ func (q *Queries) CloseCycle(ctx context.Context, arg CloseCycleParams) error {
 
 const createCycle = `-- name: CreateCycle :exec
 INSERT INTO cycles (id, human_id, campaign_id, cycle_number, status, cycle_budget,
-  remaining_budget, cycle_objective, campaign_type, kpb_config, z_factor, start_date, end_date)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+  remaining_budget, cycle_objective, campaign_type, kpb_config, content_override,
+  z_factor, start_date, end_date)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 `
 
 type CreateCycleParams struct {
@@ -58,6 +59,7 @@ type CreateCycleParams struct {
 	CycleObjective  string
 	CampaignType    string
 	KpbConfig       []byte
+	ContentOverride []byte
 	ZFactor         float64
 	StartDate       pgtype.Timestamptz
 	EndDate         pgtype.Timestamptz
@@ -75,6 +77,7 @@ func (q *Queries) CreateCycle(ctx context.Context, arg CreateCycleParams) error 
 		arg.CycleObjective,
 		arg.CampaignType,
 		arg.KpbConfig,
+		arg.ContentOverride,
 		arg.ZFactor,
 		arg.StartDate,
 		arg.EndDate,
@@ -83,7 +86,7 @@ func (q *Queries) CreateCycle(ctx context.Context, arg CreateCycleParams) error 
 }
 
 const getActiveCycles = `-- name: GetActiveCycles :many
-SELECT id, human_id, campaign_id, cycle_number, status, cycle_budget, remaining_budget, cycle_objective, campaign_type, kpb_config, z_factor, start_date, end_date, created_at, updated_at FROM cycles WHERE status = 'active' ORDER BY start_date
+SELECT id, human_id, campaign_id, cycle_number, status, cycle_budget, remaining_budget, cycle_objective, campaign_type, kpb_config, z_factor, start_date, end_date, created_at, updated_at, content_override FROM cycles WHERE status = 'active' ORDER BY start_date
 `
 
 func (q *Queries) GetActiveCycles(ctx context.Context) ([]Cycle, error) {
@@ -111,6 +114,7 @@ func (q *Queries) GetActiveCycles(ctx context.Context) ([]Cycle, error) {
 			&i.EndDate,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ContentOverride,
 		); err != nil {
 			return nil, err
 		}
@@ -123,7 +127,7 @@ func (q *Queries) GetActiveCycles(ctx context.Context) ([]Cycle, error) {
 }
 
 const getCycleByID = `-- name: GetCycleByID :one
-SELECT id, human_id, campaign_id, cycle_number, status, cycle_budget, remaining_budget, cycle_objective, campaign_type, kpb_config, z_factor, start_date, end_date, created_at, updated_at FROM cycles WHERE id = $1
+SELECT id, human_id, campaign_id, cycle_number, status, cycle_budget, remaining_budget, cycle_objective, campaign_type, kpb_config, z_factor, start_date, end_date, created_at, updated_at, content_override FROM cycles WHERE id = $1
 `
 
 func (q *Queries) GetCycleByID(ctx context.Context, id string) (Cycle, error) {
@@ -145,12 +149,13 @@ func (q *Queries) GetCycleByID(ctx context.Context, id string) (Cycle, error) {
 		&i.EndDate,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ContentOverride,
 	)
 	return i, err
 }
 
 const listCyclesByCampaign = `-- name: ListCyclesByCampaign :many
-SELECT id, human_id, campaign_id, cycle_number, status, cycle_budget, remaining_budget, cycle_objective, campaign_type, kpb_config, z_factor, start_date, end_date, created_at, updated_at FROM cycles WHERE campaign_id = $1 ORDER BY cycle_number
+SELECT id, human_id, campaign_id, cycle_number, status, cycle_budget, remaining_budget, cycle_objective, campaign_type, kpb_config, z_factor, start_date, end_date, created_at, updated_at, content_override FROM cycles WHERE campaign_id = $1 ORDER BY cycle_number
 `
 
 func (q *Queries) ListCyclesByCampaign(ctx context.Context, campaignID string) ([]Cycle, error) {
@@ -178,6 +183,7 @@ func (q *Queries) ListCyclesByCampaign(ctx context.Context, campaignID string) (
 			&i.EndDate,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ContentOverride,
 		); err != nil {
 			return nil, err
 		}

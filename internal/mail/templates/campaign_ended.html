@@ -1,0 +1,7 @@
+{{define "campaign_ended.html"}}{{template "shell" .}}{{end}}
+{{define "body"}}
+<p>Hi {{.Name}},</p>
+<p>Campaign <strong>{{.CampaignName}}</strong> ({{.HumanID}}) has <strong>ended</strong>.</p>
+{{if .StatsSummary}}<p>{{.StatsSummary}}</p>{{end}}
+<p><a href="{{.DashboardURL}}" style="color:#18181b;">View summary</a></p>
+{{end}}

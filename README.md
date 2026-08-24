@@ -19,20 +19,30 @@ applicants each time.
 1. Admin creates a campaign (type: Direct Traffic or Lead Validation)
 2. Admin creates Cycle 1 with a cycle budget → Waterfall Algorithm generates tier slots
 3. Admin runs the Assignment Solver → Hungarian Algorithm returns optimal talent→slot matching
-4. Admin reviews and confirms assignments (manual overrides are audit-logged)
+4. Admin reviews and confirms assignments (manual overrides are audit-logged), or adds a human directly even if the solver did not recommend them
 5. Assigned talents receive a unique tracking link and campaign brief
-6. Talent shares the link — every click/conversion auto-logs via `POST /track/:token`
-7. The Daily Compute Job (00:00 UTC) classifies each talent's utilization pattern and updates PDC_next
-8. The Nightly Learning Job (01:00 UTC) updates each talent's long-term Bayesian baseline
-9. At cycle close, payouts are calculated, scored against KPIs, and queued for admin approval
-10. Remaining campaign budget is carried forward to Cycle 2
+6. Talent shares the link — the public frontend renders content from `GET /t/:token`
+7. The frontend records page views, CTA clicks, leads, and purchases via `POST /t/:token`
+8. The Daily Compute Job (00:00 UTC) classifies each talent's utilization pattern and updates PDC_next
+9. The Nightly Learning Job (01:00 UTC) updates each talent's long-term Bayesian baseline
+10. At cycle close, payouts are calculated, scored against KPIs, and queued for admin approval
+11. Remaining campaign budget is carried forward to Cycle 2
+
+**Campaign presentation content:**
+- Campaigns accept an ordered `content` array of `{id, title, description, images, links}` objects.
+- Cycles may provide `content_override`; omit it to inherit campaign content.
+- Patch a cycle with `"inherit_content": true` to clear its override and resume inheritance.
+- Upload up to 10 images per request with `POST /admin/campaigns/{id}/content/images`, then patch the returned CDN URLs into the content array.
+- `GET /t/{token}` is read-only and public. `POST /t/{token}` records an explicitly supplied event and requires an idempotency key.
 
 **Three real-time views:**
-- **Admin** — birds-eye cycle dashboard over WebSocket (`/ws/admin/{cycle_id}`)
+- **Admin** — birds-eye cycle dashboard over WebSocket (`/ws/admin/{cycle_id}`); global audit/ops stream at `/ws/admin/live`
 - **Talent** — own conversion metrics over WebSocket (`/ws/talent/{cycle_id}`)
 - **Campaign client** — read-only trend feed over SSE (`/stream/{viewer_token}`)
 
-See [docs/websocket-events.md](docs/websocket-events.md) for the full WebSocket event catalog and shard payload reference.
+See [docs/websocket-events.md](docs/websocket-events.md) for the full WebSocket event catalog and shard payload reference. Frontend integration for user status + audit: [docs/frontend-user-status-audit.md](docs/frontend-user-status-audit.md).
+
+**Audit:** append-only `audit_log` with hash chain + HMAC signatures, archived to filesystem or S3-compatible storage. List/detail/verify via `/admin/audit`.
 
 **Auth model (Option D):**
 - Admin: invited via email → verifies invite → sets password → sets up TOTP → TOTP required every login
@@ -104,12 +114,48 @@ make all             # full cycle: lint → test → migrate → build → docke
 | `APP_KEY` | Yes | — | Application secret (min 32 chars) |
 | `PORT` | No | `8080` | HTTP listen port |
 | `APP_ENV` | No | `development` | `development` \| `production` |
+| `APP_URL` | No | `http://localhost:3000` | Frontend base URL for links in emails |
 | `ALLOWED_ORIGINS` | No | `http://localhost:3000` | CORS origins (comma-separated) |
 | `RATE_LIMIT_RPS` | No | `100` | Requests/sec per IP |
 | `DELTA_LT` | No | `0.97` | Long-term Bayesian decay rate |
+| `RESEND_API_KEY` | Prod mail | — | Resend API key; when set, mail uses the HTTP API |
+| `SMTP_HOST` | Local mail | — | SMTP host; used when `RESEND_API_KEY` is empty |
+| `SMTP_PORT` | No | `1025` | SMTP port (Mailpit local default) |
+| `SMTP_USER` | No | — | SMTP username (optional) |
+| `SMTP_PASSWORD` | No | — | SMTP password (optional) |
+| `SMTP_FROM` | No | `Scaloo <noreply@scaloo.local>` | From header (Resend and SMTP) |
+| `SMTP_TLS` | No | `false` | Use STARTTLS |
+| `IMAGEKIT_PRIVATE_KEY` | Uploads | — | ImageKit private key; empty disables uploads |
+| `IMAGEKIT_PUBLIC_KEY` | No | — | ImageKit public key |
+| `IMAGEKIT_URL_ENDPOINT` | No | — | e.g. `https://ik.imagekit.io/your_id` |
 | `GOOGLE_CLIENT_ID` | OAuth | — | Google OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | OAuth | — | Google OAuth client secret |
 | `GOOGLE_REDIRECT_URL` | OAuth | — | OAuth callback URL |
+
+### Email
+
+Mailer selection: `RESEND_API_KEY` → Resend HTTP API; else `SMTP_HOST` → SMTP; else no-op (logs only).
+
+**Local:** `docker compose` starts **Mailpit** alongside Postgres:
+
+- SMTP: `localhost:1025` (matches `.env.example`)
+- UI: [http://localhost:8025](http://localhost:8025) — inspect lifecycle emails
+
+**Production:** set `RESEND_API_KEY`, a verified `SMTP_FROM` domain in Resend, and `APP_URL` to the real frontend origin (invite/login links). Do not point production at Mailpit. Leave `SMTP_HOST` empty in production so a missing API key fails closed to the no-op mailer instead of a local SMTP host.
+
+### Image uploads (ImageKit)
+
+Server-side multipart uploads go to ImageKit under `/scaloo/brands/{brand_id}` and `/scaloo/avatars/{user_id}`. The API stores and returns the CDN URL (`logo_url` / `avatar_url`); it does not proxy image bytes.
+
+| Endpoint | Body |
+|----------|------|
+| `POST /admin/brands` | JSON **or** `multipart/form-data` with fields `name`, `industry`, `description`, `website` and optional file `logo` |
+| `PATCH /admin/brands/{id}` | JSON **or** multipart (same fields optional + optional `logo`) |
+| `POST /admin/brands/{id}/logo` | multipart file field `logo` |
+| `POST /settings/avatar` | multipart file field `avatar` (or `file`) |
+
+Allowed types: JPEG, PNG, WebP (max 5MB). If logo upload fails after brand create, the brand row is kept — retry via `POST .../logo`.
+
 
 ---
 
@@ -132,14 +178,17 @@ scaloo/
 │   │   └── payout.go     ← cycle payout calculation
 │   ├── jobs/
 │   │   ├── daily_compute.go    ← 00:00 UTC cron
-│   │   └── nightly_learning.go ← 01:00 UTC cron
+│   │   ├── nightly_learning.go ← 01:00 UTC cron
+│   │   ├── fallback_check.go   ← hourly
+│   │   └── cycle_reminders.go  ← hourly mid/3d/24h + brand digest
+│   ├── mail/                   ← Resend HTTP / SMTP mailer + HTML templates
 │   ├── middleware/
 │   │   ├── auth.go       ← session + role enforcement
 │   │   ├── cors.go
 │   │   └── rate-limit.go
 │   ├── src/              ← all route packages (same structure each)
 │   │   ├── auth/         ← service.go, handler.go, router.go
-│   │   ├── assignment/   ← solver, confirm, expand
+│   │   ├── assignment/   ← solver, confirm, manual add
 │   │   ├── campaign/     ← campaign + cycle CRUD
 │   │   └── talent/       ← talent CRUD, approval, self-service
 │   ├── store/
@@ -157,8 +206,8 @@ scaloo/
 
 ### Admin
 ```
-POST /admin/talents/invite     → invite email sent
-POST /auth/admin/verify-invite → set password
+POST /auth/invite/*            → create invite + email sent (when mail is configured)
+POST /auth/invite/verify       → set password
 POST /auth/totp/enroll         → get QR URI
 POST /auth/totp/verify         → activate 2FA
 POST /auth/login               → email + password + TOTP code → session token
@@ -166,8 +215,8 @@ POST /auth/login               → email + password + TOTP code → session toke
 
 ### Talent
 ```
-POST /auth/register            → create account (pending approval)
-[admin approves]
+POST /auth/register            → create account (pending approval) + confirmation email
+[admin approves]               → approval email
 POST /auth/login               → email + password [+ TOTP after grace period]
 POST /auth/totp/enroll         → prompted at onboarding
 POST /auth/totp/verify         → activate 2FA

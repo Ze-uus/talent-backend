@@ -17,10 +17,12 @@ import (
 	"github.com/robfig/cron/v3"
 
 	"github.com/Ze-uus/talent-backend/cmd/config"
+	"github.com/Ze-uus/talent-backend/internal/audit"
 	"github.com/Ze-uus/talent-backend/internal/domain"
 	"github.com/Ze-uus/talent-backend/internal/jobs"
+	"github.com/Ze-uus/talent-backend/internal/mail"
+	"github.com/Ze-uus/talent-backend/internal/media"
 	mw "github.com/Ze-uus/talent-backend/internal/middleware"
-	postgres "github.com/Ze-uus/talent-backend/internal/store/postgres"
 	adminsvc "github.com/Ze-uus/talent-backend/internal/src/admin"
 	assignmentsvc "github.com/Ze-uus/talent-backend/internal/src/assignment"
 	authsvc "github.com/Ze-uus/talent-backend/internal/src/auth"
@@ -31,6 +33,7 @@ import (
 	settingssvc "github.com/Ze-uus/talent-backend/internal/src/settings"
 	talentsvc "github.com/Ze-uus/talent-backend/internal/src/talent"
 	trackingsvc "github.com/Ze-uus/talent-backend/internal/src/tracking"
+	postgres "github.com/Ze-uus/talent-backend/internal/store/postgres"
 	ws "github.com/Ze-uus/talent-backend/internal/websocket"
 )
 
@@ -58,21 +61,52 @@ func main() {
 	conversion_ch := make(chan domain.ConversionEvent, 512)
 	cycle_update_ch := make(chan domain.CycleUpdateEvent, 64)
 	talent_update_ch := make(chan domain.TalentUpdateEvent, 64)
+	audit_ch := make(chan domain.AuditEvent, 256)
 
-	hub := ws.NewHub(anomaly_ch, conversion_ch, cycle_update_ch, talent_update_ch, db, cfg.Allowed_origins, log)
+	hub := ws.NewHub(anomaly_ch, conversion_ch, cycle_update_ch, talent_update_ch, audit_ch, db, cfg.Allowed_origins, log)
 	sse := ws.NewSSEHandler(db, 5*time.Second)
 
-	authSvc := authsvc.NewAuthService(db, "Scaloo")
+	archiver, err := audit.NewArchiverFromEnv(
+		cfg.Audit_s3_bucket, cfg.Audit_s3_endpoint, cfg.Audit_s3_region,
+		cfg.Audit_s3_access_key, cfg.Audit_s3_secret_key, cfg.Audit_archive_dir,
+	)
+	if err != nil {
+		log.Error("audit archiver init failed", "err", err)
+		os.Exit(1)
+	}
+	auditor := audit.NewRecorder(db, archiver, cfg.Audit_hmac_secret, audit_ch, log)
+
+	mailer := mail.New(mail.Config{
+		Host:     cfg.SMTP_host,
+		Port:     cfg.SMTP_port,
+		User:     cfg.SMTP_user,
+		Password: cfg.SMTP_password,
+		From:     cfg.SMTP_from,
+		TLS:      cfg.SMTP_tls,
+		APIKey:   cfg.Resend_api_key,
+		AppURL:   cfg.App_url,
+		Log:      log,
+	})
+	mailSvc := mail.NewService(mailer, cfg.App_url, log)
+
+	uploader := media.New(media.Config{
+		PrivateKey:  cfg.Imagekit_private_key,
+		PublicKey:   cfg.Imagekit_public_key,
+		URLEndpoint: cfg.Imagekit_url_endpoint,
+		Log:         log,
+	})
+
+	authSvc := authsvc.NewAuthService(db, "Scaloo", mailSvc)
 
 	// ─── Services (channels wired after hub creation) ───────────────────────────
 
-	payout := payoutsvc.New(db)
-	campaign := campaignsvc.New(db, payout, cycle_update_ch, log)
-	brand := brandsvc.New(db)
-	talent := talentsvc.New(db)
-	assignment := assignmentsvc.New(db, talent_update_ch, log)
-	admin := adminsvc.New(db, talent_update_ch, log)
-	settings := settingssvc.New(db, authSvc)
+	payout := payoutsvc.New(db, mailSvc, auditor)
+	campaign := campaignsvc.New(db, payout, cycle_update_ch, log, mailSvc, auditor, uploader)
+	brand := brandsvc.New(db, uploader, auditor)
+	talent := talentsvc.New(db, auditor)
+	assignment := assignmentsvc.New(db, talent_update_ch, log, mailSvc, auditor, cfg.Delta_lt)
+	admin := adminsvc.New(db, talent_update_ch, log, mailSvc, auditor, cfg.Delta_lt)
+	settings := settingssvc.New(db, authSvc, uploader)
 	tracking := trackingsvc.New(db, conversion_ch, log)
 
 	// ─── Router + global middleware ──────────────────────────────────────────────
@@ -84,9 +118,11 @@ func main() {
 	r.Use(chimw.Recoverer)
 	r.Use(mw.CORS(cfg.Allowed_origins))
 	r.Use(mw.RateLimit(cfg.Rate_limit_rps))
+	r.Use(mw.RequestMeta)
 	// Resolve Bearer sessions for Huma handlers that call UserFromContext.
 	// Public routes (login/register/etc.) work without a token; invalid tokens still 401.
 	r.Use(mw.AuthenticateOptional(authSvc))
+	r.Use(mw.AuditMutations(auditor))
 
 	// ─── Huma API (single instance, single /docs) ────────────────────────────────
 
@@ -161,9 +197,10 @@ Authorization: Bearer <token>
 3. Cycle opened           POST /campaigns/:id/cycles
 4. Talents assigned       POST /assignments
 5. Tracking links issued  POST /assignments/:id/links
-6. Conversions logged     GET  /t/:token  (public tracking endpoint)
-7. Cycle closed           POST /cycles/:id/close
-8. Payout calculated      GET  /payouts/cycle/:id
+6. Content rendered      GET  /t/:token  (public presentation endpoint)
+7. Conversions logged    POST /t/:token  (public event endpoint)
+8. Cycle closed           POST /cycles/:id/close
+9. Payout calculated      GET  /payouts/cycle/:id
 ` + "```" + `
 
 ---
@@ -260,17 +297,18 @@ window.onload = function() {
 		r.Get("/brand/view/{viewer_token}/live", sse.ServeBrandContact)
 	})
 
-	brandsvc.Mount(api, brand)
-	campaignsvc.Mount(api, campaign)
+	brandsvc.Mount(api, r, brand)
+	campaignsvc.Mount(api, r, campaign)
 	assignmentsvc.Mount(api, assignment)
 	payoutsvc.Mount(api, payout)
 	adminsvc.Mount(api, admin)
 	talentsvc.Mount(api, talent)
-	settingssvc.Mount(api, settings)
+	settingssvc.Mount(api, r, settings)
 
 	// WS upgrades require a valid Bearer session at the chi level.
 	r.Group(func(r chi.Router) {
 		r.Use(mw.Authenticate(authSvc))
+		r.Get("/ws/admin/live", hub.ServeAdminLive)
 		r.Get("/ws/admin/{cycle_id}", hub.ServeAdmin)
 		r.Get("/ws/talent/{cycle_id}", hub.ServeTalent)
 	})
@@ -286,6 +324,9 @@ window.onload = function() {
 	}
 	if _, err := c.AddJob("0 * * * *", jobs.NewFallbackCheckJob(db, log)); err != nil {
 		log.Error("failed to register FallbackCheckJob", "err", err)
+	}
+	if _, err := c.AddJob("0 * * * *", jobs.NewCycleRemindersJob(db, mailSvc, log)); err != nil {
+		log.Error("failed to register CycleRemindersJob", "err", err)
 	}
 	c.Start()
 	defer c.Stop()

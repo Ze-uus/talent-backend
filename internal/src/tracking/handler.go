@@ -23,9 +23,29 @@ type std_output struct {
 
 func (h *handler) register(api huma.API) {
 	huma.Register(api, huma.Operation{
+		OperationID: "tracking_presentation",
+		Method:      http.MethodGet,
+		Path:        "/t/{token}",
+		Summary:     "Public campaign presentation",
+		Tags:        []string{"tracking"},
+		Security:    []map[string][]string{},
+	}, func(ctx context.Context, in *struct {
+		Token string `path:"token"`
+	}) (*std_output, error) {
+		presentation, err := h.svc.GetPresentation(ctx, in.Token)
+		if err != nil {
+			if errors.Is(err, ErrInvalidToken) || errors.Is(err, ErrPresentationUnavailable) {
+				return &std_output{Status: http.StatusNotFound, Body: response.Fail(response.ErrNotFound)}, nil
+			}
+			return &std_output{Status: http.StatusInternalServerError, Body: response.Fail(response.ErrInternal)}, nil
+		}
+		return &std_output{Status: http.StatusOK, Body: response.Ok(presentation, "ok")}, nil
+	})
+
+	huma.Register(api, huma.Operation{
 		OperationID: "track_event",
 		Method:      http.MethodPost,
-		Path:        "/track/{token}",
+		Path:        "/t/{token}",
 		Summary:     "Conversion event ingestion",
 		Tags:        []string{"tracking"},
 		Security:    []map[string][]string{},
@@ -41,7 +61,10 @@ func (h *handler) register(api huma.API) {
 			if errors.Is(err, ErrDuplicateEvent) {
 				return &std_output{Status: http.StatusNoContent, Body: response.Ok(nil, "already_logged")}, nil
 			}
-			return &std_output{Status: 500, Body: response.Fail(err.Error())}, nil
+			if errors.Is(err, ErrInvalidToken) || errors.Is(err, ErrPresentationUnavailable) {
+				return &std_output{Status: http.StatusNotFound, Body: response.Fail(response.ErrNotFound)}, nil
+			}
+			return &std_output{Status: response.ErrorStatus(err), Body: response.Fail(response.ErrorCode(err))}, nil
 		}
 		return &std_output{Status: http.StatusOK, Body: response.Ok(nil, "event_logged")}, nil
 	})

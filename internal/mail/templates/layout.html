@@ -1,0 +1,24 @@
+{{define "shell"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>{{.Subject}}</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:Georgia,serif;color:#18181b;">
+  <div style="display:none;max-height:0;overflow:hidden;">{{.Preheader}}</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f4f5;padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" width="560" cellspacing="0" cellpadding="0" style="background:#ffffff;border-radius:8px;padding:32px;">
+        <tr><td style="font-size:22px;font-weight:700;letter-spacing:-0.02em;padding-bottom:8px;">Scaloo</td></tr>
+        <tr><td style="font-size:16px;line-height:1.55;padding-bottom:24px;">
+          {{template "body" .}}
+        </td></tr>
+        <tr><td style="font-size:12px;color:#71717a;border-top:1px solid #e4e4e7;padding-top:16px;">
+          <a href="{{.AppURL}}" style="color:#71717a;">Open Scaloo</a>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>{{end}}

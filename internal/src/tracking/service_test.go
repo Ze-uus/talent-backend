@@ -2,9 +2,11 @@ package tracking_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +21,8 @@ import (
 type mockStore struct {
 	link          store.TrackingLink
 	cycle         store.Cycle
+	campaign      store.Campaign
+	brand         store.Brand
 	logErr        error
 	conversionCnt float64
 	talentCnt     float64
@@ -47,7 +51,7 @@ func (m *mockStore) GetTalentConversions(_ context.Context, _, _ string) (float6
 }
 
 // stub remaining Store methods
-func (m *mockStore) Ping(_ context.Context) error { return nil }
+func (m *mockStore) Ping(_ context.Context) error                     { return nil }
 func (m *mockStore) CreateUser(_ context.Context, _ store.User) error { return nil }
 func (m *mockStore) GetUserByID(_ context.Context, _ string) (store.User, error) {
 	return store.User{}, nil
@@ -76,8 +80,11 @@ func (m *mockStore) ListSessionsByUser(_ context.Context, _ string) ([]store.Ses
 	return nil, nil
 }
 func (m *mockStore) CreateBrand(_ context.Context, _ store.Brand) error { return nil }
-func (m *mockStore) GetBrandByID(_ context.Context, _ string) (store.Brand, error) {
-	return store.Brand{}, nil
+func (m *mockStore) GetBrandByID(_ context.Context, id string) (store.Brand, error) {
+	if m.brand.ID != id {
+		return store.Brand{}, errors.New("not_found")
+	}
+	return m.brand, nil
 }
 func (m *mockStore) GetBrandByShortcode(_ context.Context, _ string) (store.Brand, error) {
 	return store.Brand{}, nil
@@ -86,8 +93,8 @@ func (m *mockStore) ListBrands(_ context.Context, _ store.BrandFilter) ([]store.
 	return nil, nil
 }
 func (m *mockStore) UpdateBrand(_ context.Context, _ string, _ store.BrandPatch) error { return nil }
-func (m *mockStore) ShortcodeExists(_ context.Context, _ string) (bool, error)          { return false, nil }
-func (m *mockStore) CreateBrandContact(_ context.Context, _ store.BrandContact) error   { return nil }
+func (m *mockStore) ShortcodeExists(_ context.Context, _ string) (bool, error)         { return false, nil }
+func (m *mockStore) CreateBrandContact(_ context.Context, _ store.BrandContact) error  { return nil }
 func (m *mockStore) GetBrandContactByID(_ context.Context, _ string) (store.BrandContact, error) {
 	return store.BrandContact{}, nil
 }
@@ -118,9 +125,12 @@ func (m *mockStore) ListTalents(_ context.Context, _ store.TalentFilter) ([]stor
 	return nil, nil
 }
 func (m *mockStore) UpdateTalent(_ context.Context, _ string, _ store.TalentPatch) error { return nil }
-func (m *mockStore) CreateCampaign(_ context.Context, _ store.Campaign) error             { return nil }
-func (m *mockStore) GetCampaignByID(_ context.Context, _ string) (store.Campaign, error) {
-	return store.Campaign{}, nil
+func (m *mockStore) CreateCampaign(_ context.Context, _ store.Campaign) error            { return nil }
+func (m *mockStore) GetCampaignByID(_ context.Context, id string) (store.Campaign, error) {
+	if m.campaign.ID != id {
+		return store.Campaign{}, errors.New("not_found")
+	}
+	return m.campaign, nil
 }
 func (m *mockStore) GetCampaignByHumanID(_ context.Context, _ string) (store.Campaign, error) {
 	return store.Campaign{}, nil
@@ -132,21 +142,33 @@ func (m *mockStore) ListActiveCampaigns(_ context.Context) ([]store.Campaign, er
 func (m *mockStore) UpdateCampaign(_ context.Context, _ string, _ store.CampaignPatch) error {
 	return nil
 }
-func (m *mockStore) DecrementRemainingBudget(_ context.Context, _ string, _ float64) error { return nil }
-func (m *mockStore) NextCampaignHumanID(_ context.Context, _ string) (string, error)     { return "", nil }
+func (m *mockStore) DecrementRemainingBudget(_ context.Context, _ string, _ float64) error {
+	return nil
+}
+func (m *mockStore) NextCampaignHumanID(_ context.Context, _ string) (string, error) { return "", nil }
 func (m *mockStore) GetCampaignsByManagerID(_ context.Context, _ string) ([]store.Campaign, error) {
 	return nil, nil
 }
-func (m *mockStore) AssignManagerToCampaign(_ context.Context, _, _, _ string) error { return nil }
+func (m *mockStore) AssignManagerToCampaign(_ context.Context, _, _, _ string) error  { return nil }
 func (m *mockStore) UnassignManagerFromCampaign(_ context.Context, _, _ string) error { return nil }
-func (m *mockStore) CreateCycle(_ context.Context, _ store.Cycle) error                { return nil }
+func (m *mockStore) ListManagersByCampaignID(_ context.Context, _ string) ([]store.User, error) {
+	return nil, nil
+}
+func (m *mockStore) TryRecordEmailDispatch(_ context.Context, _, _, _, _ string) (bool, error) {
+	return true, nil
+}
+func (m *mockStore) EmailDispatchExists(_ context.Context, _, _, _, _ string) (bool, error) {
+	return false, nil
+}
+
+func (m *mockStore) CreateCycle(_ context.Context, _ store.Cycle) error { return nil }
 func (m *mockStore) ListCyclesByCampaign(_ context.Context, _ string) ([]store.Cycle, error) {
 	return nil, nil
 }
-func (m *mockStore) GetActiveCycles(_ context.Context) ([]store.Cycle, error) { return nil, nil }
+func (m *mockStore) GetActiveCycles(_ context.Context) ([]store.Cycle, error)          { return nil, nil }
 func (m *mockStore) UpdateCycle(_ context.Context, _ string, _ store.CyclePatch) error { return nil }
 func (m *mockStore) CloseCycle(_ context.Context, _ string, _ float64) error           { return nil }
-func (m *mockStore) CreateBudgetSlots(_ context.Context, _ []store.BudgetSlot) error { return nil }
+func (m *mockStore) CreateBudgetSlots(_ context.Context, _ []store.BudgetSlot) error   { return nil }
 func (m *mockStore) ListSlotsByCycle(_ context.Context, _ string) ([]store.BudgetSlot, error) {
 	return nil, nil
 }
@@ -173,8 +195,10 @@ func (m *mockStore) ListTrackingLinksByCycle(_ context.Context, _ string) ([]sto
 func (m *mockStore) GetDailyConversionCount(_ context.Context, _, _ string, _ time.Time) (float64, error) {
 	return 0, nil
 }
-func (m *mockStore) FlagFallbackConversions(_ context.Context, _ string, _ time.Time) error { return nil }
-func (m *mockStore) LockFallbackConversions(_ context.Context, _ string) error               { return nil }
+func (m *mockStore) FlagFallbackConversions(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
+func (m *mockStore) LockFallbackConversions(_ context.Context, _ string) error { return nil }
 func (m *mockStore) GetCycleState(_ context.Context, _, _ string) (store.CycleState, error) {
 	return store.CycleState{}, nil
 }
@@ -228,7 +252,20 @@ func (m *mockStore) ListAuditLog(_ context.Context, _, _ string) ([]store.AuditL
 	return nil, nil
 }
 func (m *mockStore) ListAllTalents(_ context.Context) ([]store.Talent, error) { return nil, nil }
-func (m *mockStore) WriteAuditLog(_ context.Context, _ store.AuditLog) error    { return nil }
+func (m *mockStore) WriteAuditLog(_ context.Context, _ store.AuditLog) error  { return nil }
+
+func (m *mockStore) GetAuditLogByID(_ context.Context, _ string) (store.AuditLog, error) {
+	return store.AuditLog{}, nil
+}
+func (m *mockStore) ListAuditLogFiltered(_ context.Context, _ store.AuditFilter) ([]store.AuditLog, error) {
+	return nil, nil
+}
+func (m *mockStore) AppendAuditLog(_ context.Context, e store.AuditLog) (store.AuditLog, error) {
+	return e, nil
+}
+func (m *mockStore) GetAuditChainTip(_ context.Context) (string, int64, error) {
+	return "0000000000000000000000000000000000000000000000000000000000000000", 0, nil
+}
 
 func baseMock() *mockStore {
 	return &mockStore{
@@ -241,8 +278,16 @@ func baseMock() *mockStore {
 		},
 		cycle: store.Cycle{
 			ID:            "cycle-1",
+			Campaign_id:   "camp-1",
+			Status:        store.Cycle_active,
 			Campaign_type: store.Type_direct_traffic,
 		},
+		campaign: store.Campaign{
+			ID: "camp-1", Brand_id: "brand-1", Name: "Launch",
+			Status: store.Campaign_active, Campaign_type: store.Type_direct_traffic,
+			Target_cpa: 150000, Content: []store.ContentItem{{ID: "campaign-content"}},
+		},
+		brand:         store.Brand{ID: "brand-1", Name: "Acme"},
 		conversionCnt: 10,
 		talentCnt:     3,
 	}
@@ -281,5 +326,55 @@ func TestLogEvent_DuplicateDoesNotPush(t *testing.T) {
 	}
 	if len(ch) != 0 {
 		t.Fatal("duplicate event should not push to channel")
+	}
+}
+
+func TestGetPresentationUsesCycleOverrideAndRedactsInternalFields(t *testing.T) {
+	ms := baseMock()
+	override := []store.ContentItem{{ID: "cycle-content", Images: []string{}, Links: []store.ContentLink{}}}
+	ms.cycle.Content_override = &override
+	svc := tracking.New(ms, nil, slog.Default())
+
+	view, err := svc.GetPresentation(context.Background(), "tok-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Content) != 1 || view.Content[0].ID != "cycle-content" {
+		t.Fatalf("unexpected effective content: %+v", view.Content)
+	}
+	if view.Brand.Name != "Acme" || view.Campaign.Name != "Launch" {
+		t.Fatalf("presentation was not enriched: %+v", view)
+	}
+	body, err := json.Marshal(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jsonBody := string(body)
+	for _, forbidden := range []string{"target_cpa", "campaign_id", "talent_id", "manager"} {
+		if strings.Contains(jsonBody, forbidden) {
+			t.Fatalf("public presentation leaked %q: %s", forbidden, jsonBody)
+		}
+	}
+}
+
+func TestGetPresentationRejectsInactiveContext(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*mockStore)
+		err    error
+	}{
+		{"inactive token", func(m *mockStore) { m.link.Active = false }, tracking.ErrInvalidToken},
+		{"closed cycle", func(m *mockStore) { m.cycle.Status = store.Cycle_closed }, tracking.ErrPresentationUnavailable},
+		{"archived campaign", func(m *mockStore) { m.campaign.Status = store.Campaign_archived }, tracking.ErrPresentationUnavailable},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ms := baseMock()
+			tt.mutate(ms)
+			_, err := tracking.New(ms, nil, slog.Default()).GetPresentation(context.Background(), "tok-1")
+			if !errors.Is(err, tt.err) {
+				t.Fatalf("expected %v, got %v", tt.err, err)
+			}
+		})
 	}
 }

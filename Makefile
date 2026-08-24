@@ -30,7 +30,7 @@ dev: docker-up-db migrate-up run
 # Same as dev but with hot-reload
 dev-watch: docker-up-db migrate-up run-watch
 
-# CI-equivalent gate — what the pipeline runs
+# CI-equivalent gate — what the pipeline runs 
 ci: tidy vet lint test-coverage build
 	@echo "✓ CI checks passed"
 
@@ -106,8 +106,9 @@ docker-up:
 	$(DC) up -d
 
 docker-up-db:
-	@echo "→ Starting DB container..."
+	@echo "→ Starting DB + Mailpit containers..."
 	$(DC) up -d --wait db
+	$(DC) up -d mailpit
 
 docker-up-build:
 	@echo "→ Building and starting containers..."

@@ -4,7 +4,11 @@ dev-files/*
 .cursor
 .claude
 bin/
+tmp/
+var/
 cmd.exe
 coverage.out
 coverage.html
 PR.md
+/types
+.air.toml

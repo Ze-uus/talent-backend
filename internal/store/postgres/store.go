@@ -15,12 +15,24 @@ import (
 
 	"github.com/Ze-uus/talent-backend/internal/algo"
 	"github.com/Ze-uus/talent-backend/internal/store"
+	storepg "github.com/Ze-uus/talent-backend/internal/store/pgerr"
 )
 
 // Store implements store.Store backed by a pgxpool connection pool.
 type Store struct {
 	pool *pgxpool.Pool
 	q    *Queries
+}
+
+func (s *Store) execMutation(ctx context.Context, query string, args ...any) error {
+	tag, err := s.pool.Exec(ctx, query, args...)
+	if err != nil {
+		return storepg.Translate(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return storepg.Translate(pgx.ErrNoRows)
+	}
+	return nil
 }
 
 // NewStore opens a connection pool and returns a store.Store.
@@ -48,6 +60,14 @@ func pts(t pgtype.Timestamptz) time.Time {
 	return time.Time{}
 }
 
+func ptsToPtr(t pgtype.Timestamptz) *time.Time {
+	if !t.Valid || t.Time.IsZero() {
+		return nil
+	}
+	tt := t.Time
+	return &tt
+}
+
 func ptsPtr(t *time.Time) pgtype.Timestamptz {
 	if t == nil || t.IsZero() {
 		return pgtype.Timestamptz{Valid: false}
@@ -66,6 +86,7 @@ func toStoreUser(u User) store.User {
 		Provider:              store.Auth_provider(u.Provider),
 		Google_id:             ptext(u.GoogleID),
 		Full_name:             u.FullName,
+		Phone_number:          u.PhoneNumber,
 		Avatar_url:            u.AvatarUrl,
 		Totp_secret:           u.TotpSecret,
 		Totp_enabled:          u.TotpEnabled,
@@ -74,6 +95,8 @@ func toStoreUser(u User) store.User {
 		Invite_token:          ptext(u.InviteToken),
 		Invite_expires_at:     pts(u.InviteExpiresAt),
 		Active:                u.Active,
+		Status:                store.User_status(u.Status),
+		Deleted_at:            ptsToPtr(u.DeletedAt),
 		Created_at:            pts(u.CreatedAt),
 		Updated_at:            pts(u.UpdatedAt),
 	}
@@ -100,6 +123,7 @@ func toStoreBrand(b Brand) store.Brand {
 		Industry:    b.Industry,
 		Description: b.Description,
 		Website:     b.Website,
+		Logo_url:    b.LogoUrl,
 		Status:      b.Status,
 		Created_at:  pts(b.CreatedAt),
 		Updated_at:  pts(b.UpdatedAt),
@@ -142,6 +166,10 @@ func toStoreTalent(t Talent) store.Talent {
 }
 
 func toStoreCampaign(c Campaign) store.Campaign {
+	content := []store.ContentItem{}
+	if len(c.Content) > 0 {
+		_ = json.Unmarshal(c.Content, &content)
+	}
 	return store.Campaign{
 		ID:               c.ID,
 		Human_id:         c.HumanID,
@@ -158,6 +186,7 @@ func toStoreCampaign(c Campaign) store.Campaign {
 		Urgency_level:    store.Urgency_level(c.UrgencyLevel),
 		Cycle_length:     int(c.CycleLength),
 		Creators_allowed: c.CreatorsAllowed,
+		Content:          content,
 		Start_date:       pts(c.StartDate),
 		End_date:         pts(c.EndDate),
 		Created_at:       pts(c.CreatedAt),
@@ -170,6 +199,13 @@ func toStoreCycle(c Cycle) store.Cycle {
 	if len(c.KpbConfig) > 0 {
 		_ = json.Unmarshal(c.KpbConfig, &kpb)
 	}
+	var contentOverride *[]store.ContentItem
+	if len(c.ContentOverride) > 0 && string(c.ContentOverride) != "null" {
+		content := []store.ContentItem{}
+		if json.Unmarshal(c.ContentOverride, &content) == nil {
+			contentOverride = &content
+		}
+	}
 	return store.Cycle{
 		ID:               c.ID,
 		Human_id:         c.HumanID,
@@ -181,6 +217,7 @@ func toStoreCycle(c Cycle) store.Cycle {
 		Cycle_objective:  c.CycleObjective,
 		Campaign_type:    store.Campaign_type(c.CampaignType),
 		KPB_config:       kpb,
+		Content_override: contentOverride,
 		Z_factor:         c.ZFactor,
 		Start_date:       pts(c.StartDate),
 		End_date:         pts(c.EndDate),
@@ -261,37 +298,37 @@ func toStoreTalentBaseline(b TalentBaseline) store.TalentBaseline {
 
 func toStorePayoutRecord(p PayoutRecord) store.PayoutRecord {
 	return store.PayoutRecord{
-		ID:               p.ID,
-		Talent_id:        p.TalentID,
-		Cycle_id:         p.CycleID,
-		Campaign_id:      p.CampaignID,
-		Pipeline_type:    store.Campaign_type(p.PipelineType),
-		Status:           store.Payout_status(p.Status),
-		Allocated_budget: p.AllocatedBudget,
-		Gross_base:       p.GrossBase,
-		KPB_total:        p.KpbTotal,
-		Gross_total:      p.GrossTotal,
-		Cost_per_unit:    p.CostPerUnit,
-		Cap_applied:      p.CapApplied,
-		Cap_exceeded:     p.CapExceeded,
-		Excess_forfeited: p.ExcessForfeited,
-		Commission_rate:  p.CommissionRate,
+		ID:                p.ID,
+		Talent_id:         p.TalentID,
+		Cycle_id:          p.CycleID,
+		Campaign_id:       p.CampaignID,
+		Pipeline_type:     store.Campaign_type(p.PipelineType),
+		Status:            store.Payout_status(p.Status),
+		Allocated_budget:  p.AllocatedBudget,
+		Gross_base:        p.GrossBase,
+		KPB_total:         p.KpbTotal,
+		Gross_total:       p.GrossTotal,
+		Cost_per_unit:     p.CostPerUnit,
+		Cap_applied:       p.CapApplied,
+		Cap_exceeded:      p.CapExceeded,
+		Excess_forfeited:  p.ExcessForfeited,
+		Commission_rate:   p.CommissionRate,
 		Commission_amount: p.CommissionAmount,
-		E_net:            p.ENet,
-		Scale_factor:     p.ScaleFactor,
-		Final_payout:     p.FinalPayout,
-		KPB_pool_source:  p.KpbPoolSource,
-		Fallback_flagged: p.FallbackFlagged,
-		Report_submitted: p.ReportSubmitted,
-		Admin_override:   p.AdminOverride,
-		Override_reason:  p.OverrideReason,
-		Approved_by:      ptext(p.ApprovedBy),
-		Approved_at:      pts(p.ApprovedAt),
-		Paid_at:          pts(p.PaidAt),
-		Failure_reason:   p.FailureReason,
-		Retry_count:      int(p.RetryCount),
-		Created_at:       pts(p.CreatedAt),
-		Updated_at:       pts(p.UpdatedAt),
+		E_net:             p.ENet,
+		Scale_factor:      p.ScaleFactor,
+		Final_payout:      p.FinalPayout,
+		KPB_pool_source:   p.KpbPoolSource,
+		Fallback_flagged:  p.FallbackFlagged,
+		Report_submitted:  p.ReportSubmitted,
+		Admin_override:    p.AdminOverride,
+		Override_reason:   p.OverrideReason,
+		Approved_by:       ptext(p.ApprovedBy),
+		Approved_at:       pts(p.ApprovedAt),
+		Paid_at:           pts(p.PaidAt),
+		Failure_reason:    p.FailureReason,
+		Retry_count:       int(p.RetryCount),
+		Created_at:        pts(p.CreatedAt),
+		Updated_at:        pts(p.UpdatedAt),
 	}
 }
 
@@ -318,14 +355,26 @@ func toStoreViewerPassword(p ViewerPassword) store.ViewerPassword {
 }
 
 func toStoreAuditLog(a AuditLog) store.AuditLog {
+	seq := int64(0)
+	if a.Seq.Valid {
+		seq = a.Seq.Int64
+	}
 	return store.AuditLog{
 		ID:           a.ID,
-		Actor_id:     a.ActorID,
+		Actor_id:     ptext(a.ActorID),
 		Action_type:  a.ActionType,
 		Entity_type:  a.EntityType,
 		Entity_id:    a.EntityID,
 		Before_state: a.BeforeState,
 		After_state:  a.AfterState,
+		Request_id:   a.RequestID,
+		Seq:          seq,
+		Prev_hash:    a.PrevHash,
+		Entry_hash:   a.EntryHash,
+		Signature:    a.Signature,
+		Archive_uri:  a.ArchiveUri,
+		IP_address:   a.IpAddress,
+		User_agent:   a.UserAgent,
 		Created_at:   pts(a.CreatedAt),
 	}
 }
@@ -339,6 +388,10 @@ func (s *Store) Ping(ctx context.Context) error {
 // ─── Users ────────────────────────────────────────────────────────────────────
 
 func (s *Store) CreateUser(ctx context.Context, u store.User) error {
+	status := string(u.Status)
+	if status == "" {
+		status = string(store.User_status_active)
+	}
 	return s.q.CreateUser(ctx, CreateUserParams{
 		Email:              u.Email,
 		PasswordHash:       pgtype.Text{String: u.Password_hash, Valid: u.Password_hash != ""},
@@ -346,6 +399,7 @@ func (s *Store) CreateUser(ctx context.Context, u store.User) error {
 		Provider:           string(u.Provider),
 		GoogleID:           pgtype.Text{String: u.Google_id, Valid: u.Google_id != ""},
 		FullName:           u.Full_name,
+		PhoneNumber:        u.Phone_number,
 		AvatarUrl:          u.Avatar_url,
 		TotpSecret:         u.Totp_secret,
 		TotpEnabled:        u.Totp_enabled,
@@ -354,13 +408,15 @@ func (s *Store) CreateUser(ctx context.Context, u store.User) error {
 		InviteToken:        pgtype.Text{String: u.Invite_token, Valid: u.Invite_token != ""},
 		InviteExpiresAt:    ptsPtr(&u.Invite_expires_at),
 		Active:             u.Active,
+		Status:             status,
+		DeletedAt:          ptsPtr(u.Deleted_at),
 	})
 }
 
 func (s *Store) GetUserByID(ctx context.Context, id string) (store.User, error) {
 	u, err := s.q.GetUserByID(ctx, id)
 	if err != nil {
-		return store.User{}, err
+		return store.User{}, storepg.Translate(err)
 	}
 	return toStoreUser(u), nil
 }
@@ -368,7 +424,7 @@ func (s *Store) GetUserByID(ctx context.Context, id string) (store.User, error) 
 func (s *Store) GetUserByEmail(ctx context.Context, email string) (store.User, error) {
 	u, err := s.q.GetUserByEmail(ctx, email)
 	if err != nil {
-		return store.User{}, err
+		return store.User{}, storepg.Translate(err)
 	}
 	return toStoreUser(u), nil
 }
@@ -376,7 +432,7 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (store.User, e
 func (s *Store) GetUserByGoogleID(ctx context.Context, google_id string) (store.User, error) {
 	u, err := s.q.GetUserByGoogleID(ctx, pgtype.Text{String: google_id, Valid: google_id != ""})
 	if err != nil {
-		return store.User{}, err
+		return store.User{}, storepg.Translate(err)
 	}
 	return toStoreUser(u), nil
 }
@@ -384,7 +440,7 @@ func (s *Store) GetUserByGoogleID(ctx context.Context, google_id string) (store.
 func (s *Store) GetUserByInviteToken(ctx context.Context, token string) (store.User, error) {
 	u, err := s.q.GetUserByInviteToken(ctx, pgtype.Text{String: token, Valid: token != ""})
 	if err != nil {
-		return store.User{}, err
+		return store.User{}, storepg.Translate(err)
 	}
 	return toStoreUser(u), nil
 }
@@ -395,6 +451,10 @@ func (s *Store) UpdateUser(ctx context.Context, id string, p store.UserPatch) er
 	if p.Full_name != nil {
 		sets = append(sets, "full_name = @full_name")
 		args["full_name"] = *p.Full_name
+	}
+	if p.Phone_number != nil {
+		sets = append(sets, "phone_number = @phone_number")
+		args["phone_number"] = *p.Phone_number
 	}
 	if p.Avatar_url != nil {
 		sets = append(sets, "avatar_url = @avatar_url")
@@ -432,17 +492,25 @@ func (s *Store) UpdateUser(ctx context.Context, id string, p store.UserPatch) er
 		sets = append(sets, "active = @active")
 		args["active"] = *p.Active
 	}
-	_, err := s.pool.Exec(ctx,
+	if p.Status != nil {
+		sets = append(sets, "status = @status")
+		args["status"] = *p.Status
+	}
+	if p.Deleted_at != nil {
+		sets = append(sets, "deleted_at = @deleted_at")
+		args["deleted_at"] = *p.Deleted_at
+	}
+	return s.execMutation(ctx,
 		"UPDATE users SET "+strings.Join(sets, ", ")+" WHERE id = @id", args)
-	return err
 }
 
 func (s *Store) ListUsers(ctx context.Context, f store.UserFilter) ([]store.User, error) {
-	args := pgx.NamedArgs{"role": f.Role}
+	args := pgx.NamedArgs{"role": f.Role, "status": f.Status}
 	q := `SELECT id, email, password_hash, role, provider, google_id, full_name, avatar_url,
 		totp_secret, totp_enabled, totp_verified, totp_last_verified_at, invite_token,
-		invite_expires_at, active, created_at, updated_at
-		FROM users WHERE (@role::text = '' OR role = @role)`
+		invite_expires_at, active, created_at, updated_at, status, deleted_at, phone_number
+		FROM users WHERE (@role::text = '' OR role = @role)
+		AND (@status::text = '' OR status = @status)`
 	if f.Active != nil {
 		q += " AND active = @active"
 		args["active"] = *f.Active
@@ -450,7 +518,7 @@ func (s *Store) ListUsers(ctx context.Context, f store.UserFilter) ([]store.User
 	q += " ORDER BY created_at DESC"
 	pgRows, err := s.pool.Query(ctx, q, args)
 	if err != nil {
-		return nil, err
+		return nil, storepg.Translate(err)
 	}
 	defer pgRows.Close()
 	var out []store.User
@@ -460,9 +528,9 @@ func (s *Store) ListUsers(ctx context.Context, f store.UserFilter) ([]store.User
 			&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.Provider, &u.GoogleID,
 			&u.FullName, &u.AvatarUrl, &u.TotpSecret, &u.TotpEnabled, &u.TotpVerified,
 			&u.TotpLastVerifiedAt, &u.InviteToken, &u.InviteExpiresAt, &u.Active,
-			&u.CreatedAt, &u.UpdatedAt,
+			&u.CreatedAt, &u.UpdatedAt, &u.Status, &u.DeletedAt, &u.PhoneNumber,
 		); err != nil {
-			return nil, err
+			return nil, storepg.Translate(err)
 		}
 		out = append(out, toStoreUser(u))
 	}
@@ -485,7 +553,7 @@ func (s *Store) CreateSession(ctx context.Context, sess store.Session) error {
 func (s *Store) GetSession(ctx context.Context, token string) (store.Session, error) {
 	sess, err := s.q.GetSession(ctx, token)
 	if err != nil {
-		return store.Session{}, err
+		return store.Session{}, storepg.Translate(err)
 	}
 	return toStoreSession(sess), nil
 }
@@ -508,7 +576,7 @@ func (s *Store) InvalidateAllUserSessions(ctx context.Context, user_id string) e
 func (s *Store) ListSessionsByUser(ctx context.Context, user_id string) ([]store.Session, error) {
 	rows, err := s.q.ListSessionsByUser(ctx, user_id)
 	if err != nil {
-		return nil, err
+		return nil, storepg.Translate(err)
 	}
 	out := make([]store.Session, len(rows))
 	for i, r := range rows {
@@ -528,13 +596,14 @@ func (s *Store) CreateBrand(ctx context.Context, b store.Brand) error {
 		Description: b.Description,
 		Website:     b.Website,
 		Status:      b.Status,
+		LogoUrl:     b.Logo_url,
 	})
 }
 
 func (s *Store) GetBrandByID(ctx context.Context, id string) (store.Brand, error) {
 	b, err := s.q.GetBrandByID(ctx, id)
 	if err != nil {
-		return store.Brand{}, err
+		return store.Brand{}, storepg.Translate(err)
 	}
 	return toStoreBrand(b), nil
 }
@@ -542,7 +611,7 @@ func (s *Store) GetBrandByID(ctx context.Context, id string) (store.Brand, error
 func (s *Store) GetBrandByShortcode(ctx context.Context, shortcode string) (store.Brand, error) {
 	b, err := s.q.GetBrandByShortcode(ctx, shortcode)
 	if err != nil {
-		return store.Brand{}, err
+		return store.Brand{}, storepg.Translate(err)
 	}
 	return toStoreBrand(b), nil
 }
@@ -554,7 +623,7 @@ func (s *Store) ListBrands(ctx context.Context, f store.BrandFilter) ([]store.Br
 		Column3: int32(f.Offset),
 	})
 	if err != nil {
-		return nil, err
+		return nil, storepg.Translate(err)
 	}
 	out := make([]store.Brand, len(rows))
 	for i, r := range rows {
@@ -582,13 +651,16 @@ func (s *Store) UpdateBrand(ctx context.Context, id string, p store.BrandPatch) 
 		sets = append(sets, "website = @website")
 		args["website"] = *p.Website
 	}
+	if p.Logo_url != nil {
+		sets = append(sets, "logo_url = @logo_url")
+		args["logo_url"] = *p.Logo_url
+	}
 	if p.Status != nil {
 		sets = append(sets, "status = @status")
 		args["status"] = *p.Status
 	}
-	_, err := s.pool.Exec(ctx,
+	return s.execMutation(ctx,
 		"UPDATE brands SET "+strings.Join(sets, ", ")+" WHERE id = @id", args)
-	return err
 }
 
 func (s *Store) ShortcodeExists(ctx context.Context, shortcode string) (bool, error) {
@@ -615,7 +687,7 @@ func (s *Store) CreateBrandContact(ctx context.Context, c store.BrandContact) er
 func (s *Store) GetBrandContactByID(ctx context.Context, id string) (store.BrandContact, error) {
 	c, err := s.q.GetBrandContactByID(ctx, id)
 	if err != nil {
-		return store.BrandContact{}, err
+		return store.BrandContact{}, storepg.Translate(err)
 	}
 	return toStoreBrandContact(c), nil
 }
@@ -623,7 +695,7 @@ func (s *Store) GetBrandContactByID(ctx context.Context, id string) (store.Brand
 func (s *Store) GetBrandContactByViewerToken(ctx context.Context, token string) (store.BrandContact, error) {
 	c, err := s.q.GetBrandContactByViewerToken(ctx, token)
 	if err != nil {
-		return store.BrandContact{}, err
+		return store.BrandContact{}, storepg.Translate(err)
 	}
 	return toStoreBrandContact(c), nil
 }
@@ -631,7 +703,7 @@ func (s *Store) GetBrandContactByViewerToken(ctx context.Context, token string) 
 func (s *Store) ListBrandContacts(ctx context.Context, brand_id string) ([]store.BrandContact, error) {
 	rows, err := s.q.ListBrandContacts(ctx, brand_id)
 	if err != nil {
-		return nil, err
+		return nil, storepg.Translate(err)
 	}
 	out := make([]store.BrandContact, len(rows))
 	for i, r := range rows {
@@ -667,9 +739,8 @@ func (s *Store) UpdateBrandContact(ctx context.Context, id string, p store.Brand
 		sets = append(sets, "token_active = @token_active")
 		args["token_active"] = *p.Token_active
 	}
-	_, err := s.pool.Exec(ctx,
+	return s.execMutation(ctx,
 		"UPDATE brand_contacts SET "+strings.Join(sets, ", ")+" WHERE id = @id", args)
-	return err
 }
 
 func (s *Store) DeactivateBrandContact(ctx context.Context, id string) error {
@@ -714,7 +785,7 @@ func (s *Store) CreateTalent(ctx context.Context, t store.Talent) error {
 func (s *Store) GetTalentByID(ctx context.Context, id string) (store.Talent, error) {
 	t, err := s.q.GetTalentByID(ctx, id)
 	if err != nil {
-		return store.Talent{}, err
+		return store.Talent{}, storepg.Translate(err)
 	}
 	return toStoreTalent(t), nil
 }
@@ -722,7 +793,7 @@ func (s *Store) GetTalentByID(ctx context.Context, id string) (store.Talent, err
 func (s *Store) GetTalentByUserID(ctx context.Context, user_id string) (store.Talent, error) {
 	t, err := s.q.GetTalentByUserID(ctx, user_id)
 	if err != nil {
-		return store.Talent{}, err
+		return store.Talent{}, storepg.Translate(err)
 	}
 	return toStoreTalent(t), nil
 }
@@ -735,7 +806,7 @@ func (s *Store) ListTalents(ctx context.Context, f store.TalentFilter) ([]store.
 		Column4: int32(f.Offset),
 	})
 	if err != nil {
-		return nil, err
+		return nil, storepg.Translate(err)
 	}
 	out := make([]store.Talent, len(rows))
 	for i, r := range rows {
@@ -779,15 +850,21 @@ func (s *Store) UpdateTalent(ctx context.Context, id string, p store.TalentPatch
 		sets = append(sets, "report_compliance = @report_compliance")
 		args["report_compliance"] = *p.Report_compliance
 	}
-	_, err := s.pool.Exec(ctx,
+	tag, err := s.pool.Exec(ctx,
 		"UPDATE talents SET "+strings.Join(sets, ", ")+" WHERE id = @id", args)
-	return err
+	if err != nil {
+		return storepg.Translate(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return errors.New("not_found")
+	}
+	return nil
 }
 
 func (s *Store) ListAllTalents(ctx context.Context) ([]store.Talent, error) {
 	rows, err := s.q.ListAllTalents(ctx)
 	if err != nil {
-		return nil, err
+		return nil, storepg.Translate(err)
 	}
 	out := make([]store.Talent, len(rows))
 	for i, r := range rows {
@@ -799,31 +876,33 @@ func (s *Store) ListAllTalents(ctx context.Context) ([]store.Talent, error) {
 // ─── Campaigns ────────────────────────────────────────────────────────────────
 
 func (s *Store) CreateCampaign(ctx context.Context, c store.Campaign) error {
+	content, _ := json.Marshal(c.Content)
 	return s.q.CreateCampaign(ctx, CreateCampaignParams{
-		ID:               c.ID,
-		HumanID:          c.Human_id,
-		BrandID:          c.Brand_id,
-		Name:             c.Name,
-		Status:           string(c.Status),
-		CampaignType:     string(c.Campaign_type),
-		TotalBudget:      c.Total_budget,
-		RemainingBudget:  c.Remaining_budget,
-		MarketCap:        c.Market_cap,
-		Audience:         c.Audience,
-		TargetCpa:        c.Target_cpa,
-		MaxCpa:           c.Max_cpa,
-		UrgencyLevel:     string(c.Urgency_level),
-		CycleLength:      int32(c.Cycle_length),
-		CreatorsAllowed:  c.Creators_allowed,
-		StartDate:        pgtype.Timestamptz{Time: c.Start_date, Valid: true},
-		EndDate:          pgtype.Timestamptz{Time: c.End_date, Valid: true},
+		ID:              c.ID,
+		HumanID:         c.Human_id,
+		BrandID:         c.Brand_id,
+		Name:            c.Name,
+		Status:          string(c.Status),
+		CampaignType:    string(c.Campaign_type),
+		TotalBudget:     c.Total_budget,
+		RemainingBudget: c.Remaining_budget,
+		MarketCap:       c.Market_cap,
+		Audience:        c.Audience,
+		TargetCpa:       c.Target_cpa,
+		MaxCpa:          c.Max_cpa,
+		UrgencyLevel:    string(c.Urgency_level),
+		CycleLength:     int32(c.Cycle_length),
+		CreatorsAllowed: c.Creators_allowed,
+		Content:         content,
+		StartDate:       pgtype.Timestamptz{Time: c.Start_date, Valid: true},
+		EndDate:         pgtype.Timestamptz{Time: c.End_date, Valid: true},
 	})
 }
 
 func (s *Store) GetCampaignByID(ctx context.Context, id string) (store.Campaign, error) {
 	c, err := s.q.GetCampaignByID(ctx, id)
 	if err != nil {
-		return store.Campaign{}, err
+		return store.Campaign{}, storepg.Translate(err)
 	}
 	return toStoreCampaign(c), nil
 }
@@ -831,7 +910,7 @@ func (s *Store) GetCampaignByID(ctx context.Context, id string) (store.Campaign,
 func (s *Store) GetCampaignByHumanID(ctx context.Context, human_id string) (store.Campaign, error) {
 	c, err := s.q.GetCampaignByHumanID(ctx, human_id)
 	if err != nil {
-		return store.Campaign{}, err
+		return store.Campaign{}, storepg.Translate(err)
 	}
 	return toStoreCampaign(c), nil
 }
@@ -844,7 +923,7 @@ func (s *Store) ListCampaigns(ctx context.Context, f store.CampaignFilter) ([]st
 		Column4: int32(f.Offset),
 	})
 	if err != nil {
-		return nil, err
+		return nil, storepg.Translate(err)
 	}
 	out := make([]store.Campaign, len(rows))
 	for i, r := range rows {
@@ -856,7 +935,7 @@ func (s *Store) ListCampaigns(ctx context.Context, f store.CampaignFilter) ([]st
 func (s *Store) ListActiveCampaigns(ctx context.Context) ([]store.Campaign, error) {
 	rows, err := s.q.ListActiveCampaigns(ctx)
 	if err != nil {
-		return nil, err
+		return nil, storepg.Translate(err)
 	}
 	out := make([]store.Campaign, len(rows))
 	for i, r := range rows {
@@ -892,9 +971,16 @@ func (s *Store) UpdateCampaign(ctx context.Context, id string, p store.CampaignP
 		sets = append(sets, "creators_allowed = @creators_allowed")
 		args["creators_allowed"] = *p.Creators_allowed
 	}
-	_, err := s.pool.Exec(ctx,
+	if p.Content != nil {
+		content, err := json.Marshal(*p.Content)
+		if err != nil {
+			return storepg.Translate(err)
+		}
+		sets = append(sets, "content = @content")
+		args["content"] = content
+	}
+	return s.execMutation(ctx,
 		"UPDATE campaigns SET "+strings.Join(sets, ", ")+" WHERE id = @id", args)
-	return err
 }
 
 func (s *Store) DecrementRemainingBudget(ctx context.Context, campaign_id string, amount float64) error {
@@ -904,27 +990,39 @@ func (s *Store) DecrementRemainingBudget(ctx context.Context, campaign_id string
 	})
 }
 
-func (s *Store) NextCampaignHumanID(ctx context.Context, brand_shortcode string) (string, error) {
-	brand, err := s.q.GetBrandByShortcode(ctx, brand_shortcode)
+func (s *Store) NextCampaignHumanID(ctx context.Context, brand_id string) (string, error) {
+	brand, err := s.q.GetBrandByID(ctx, brand_id)
 	if err != nil {
-		return "", err
+		return "", storepg.Translate(err)
 	}
 	count, err := s.q.CountCampaignsByBrandMonth(ctx, brand.ID)
 	if err != nil {
-		return "", err
+		return "", storepg.Translate(err)
 	}
 	yy := time.Now().UTC().Year() % 100
-	return fmt.Sprintf("%s-%02d-%02d", brand_shortcode, yy, count+1), nil
+	return fmt.Sprintf("%s-%02d-%02d", brand.Shortcode, yy, count+1), nil
 }
 
 func (s *Store) GetCampaignsByManagerID(ctx context.Context, manager_id string) ([]store.Campaign, error) {
 	rows, err := s.q.GetCampaignsByManagerID(ctx, manager_id)
 	if err != nil {
-		return nil, err
+		return nil, storepg.Translate(err)
 	}
 	out := make([]store.Campaign, len(rows))
 	for i, r := range rows {
 		out[i] = toStoreCampaign(r)
+	}
+	return out, nil
+}
+
+func (s *Store) ListManagersByCampaignID(ctx context.Context, campaign_id string) ([]store.User, error) {
+	rows, err := s.q.ListManagersByCampaignID(ctx, campaign_id)
+	if err != nil {
+		return nil, storepg.Translate(err)
+	}
+	out := make([]store.User, len(rows))
+	for i, r := range rows {
+		out[i] = toStoreUser(r)
 	}
 	return out, nil
 }
@@ -944,10 +1042,36 @@ func (s *Store) UnassignManagerFromCampaign(ctx context.Context, manager_id, cam
 	})
 }
 
+func (s *Store) TryRecordEmailDispatch(ctx context.Context, entity_type, entity_id, template_key, recipient string) (bool, error) {
+	n, err := s.q.InsertEmailDispatch(ctx, InsertEmailDispatchParams{
+		EntityType:  entity_type,
+		EntityID:    entity_id,
+		TemplateKey: template_key,
+		Recipient:   recipient,
+	})
+	if err != nil {
+		return false, storepg.Translate(err)
+	}
+	return n > 0, nil
+}
+
+func (s *Store) EmailDispatchExists(ctx context.Context, entity_type, entity_id, template_key, recipient string) (bool, error) {
+	return s.q.EmailDispatchExists(ctx, EmailDispatchExistsParams{
+		EntityType:  entity_type,
+		EntityID:    entity_id,
+		TemplateKey: template_key,
+		Recipient:   recipient,
+	})
+}
+
 // ─── Cycles ───────────────────────────────────────────────────────────────────
 
 func (s *Store) CreateCycle(ctx context.Context, c store.Cycle) error {
 	kpb, _ := json.Marshal(c.KPB_config)
+	var contentOverride []byte
+	if c.Content_override != nil {
+		contentOverride, _ = json.Marshal(*c.Content_override)
+	}
 	return s.q.CreateCycle(ctx, CreateCycleParams{
 		ID:              c.ID,
 		HumanID:         c.Human_id,
@@ -959,6 +1083,7 @@ func (s *Store) CreateCycle(ctx context.Context, c store.Cycle) error {
 		CycleObjective:  c.Cycle_objective,
 		CampaignType:    string(c.Campaign_type),
 		KpbConfig:       kpb,
+		ContentOverride: contentOverride,
 		ZFactor:         c.Z_factor,
 		StartDate:       pgtype.Timestamptz{Time: c.Start_date, Valid: true},
 		EndDate:         pgtype.Timestamptz{Time: c.End_date, Valid: true},
@@ -968,7 +1093,7 @@ func (s *Store) CreateCycle(ctx context.Context, c store.Cycle) error {
 func (s *Store) GetCycleByID(ctx context.Context, id string) (store.Cycle, error) {
 	c, err := s.q.GetCycleByID(ctx, id)
 	if err != nil {
-		return store.Cycle{}, err
+		return store.Cycle{}, storepg.Translate(err)
 	}
 	return toStoreCycle(c), nil
 }
@@ -976,7 +1101,7 @@ func (s *Store) GetCycleByID(ctx context.Context, id string) (store.Cycle, error
 func (s *Store) ListCyclesByCampaign(ctx context.Context, campaign_id string) ([]store.Cycle, error) {
 	rows, err := s.q.ListCyclesByCampaign(ctx, campaign_id)
 	if err != nil {
-		return nil, err
+		return nil, storepg.Translate(err)
 	}
 	out := make([]store.Cycle, len(rows))
 	for i, r := range rows {
@@ -988,7 +1113,7 @@ func (s *Store) ListCyclesByCampaign(ctx context.Context, campaign_id string) ([
 func (s *Store) GetActiveCycles(ctx context.Context) ([]store.Cycle, error) {
 	rows, err := s.q.GetActiveCycles(ctx)
 	if err != nil {
-		return nil, err
+		return nil, storepg.Translate(err)
 	}
 	out := make([]store.Cycle, len(rows))
 	for i, r := range rows {
@@ -1020,9 +1145,20 @@ func (s *Store) UpdateCycle(ctx context.Context, id string, p store.CyclePatch) 
 		sets = append(sets, "end_date = @end_date")
 		args["end_date"] = *p.End_date
 	}
-	_, err := s.pool.Exec(ctx,
+	if p.Content_override != nil {
+		sets = append(sets, "content_override = @content_override")
+		if *p.Content_override == nil {
+			args["content_override"] = nil
+		} else {
+			content, err := json.Marshal(*p.Content_override)
+			if err != nil {
+				return storepg.Translate(err)
+			}
+			args["content_override"] = content
+		}
+	}
+	return s.execMutation(ctx,
 		"UPDATE cycles SET "+strings.Join(sets, ", ")+" WHERE id = @id", args)
-	return err
 }
 
 func (s *Store) CloseCycle(ctx context.Context, id string, spend float64) error {
@@ -1043,7 +1179,7 @@ func (s *Store) CreateBudgetSlots(ctx context.Context, slots []store.BudgetSlot)
 			slot.ID, slot.Cycle_id, slot.Tier_value, slot.Slot_index, slot.Allocated, tid,
 		)
 		if err != nil {
-			return err
+			return storepg.Translate(err)
 		}
 	}
 	return nil
@@ -1052,7 +1188,7 @@ func (s *Store) CreateBudgetSlots(ctx context.Context, slots []store.BudgetSlot)
 func (s *Store) ListSlotsByCycle(ctx context.Context, cycle_id string) ([]store.BudgetSlot, error) {
 	rows, err := s.q.ListSlotsByCycle(ctx, cycle_id)
 	if err != nil {
-		return nil, err
+		return nil, storepg.Translate(err)
 	}
 	out := make([]store.BudgetSlot, len(rows))
 	for i, r := range rows {
@@ -1094,7 +1230,7 @@ func (s *Store) CreateAssignment(ctx context.Context, a store.TalentAssignment) 
 func (s *Store) GetAssignment(ctx context.Context, talent_id, cycle_id string) (store.TalentAssignment, error) {
 	a, err := s.q.GetAssignment(ctx, GetAssignmentParams{TalentID: talent_id, CycleID: cycle_id})
 	if err != nil {
-		return store.TalentAssignment{}, err
+		return store.TalentAssignment{}, storepg.Translate(err)
 	}
 	return toStoreTalentAssignment(a), nil
 }
@@ -1102,7 +1238,7 @@ func (s *Store) GetAssignment(ctx context.Context, talent_id, cycle_id string) (
 func (s *Store) ListAssignedTalents(ctx context.Context, cycle_id string) ([]store.TalentAssignment, error) {
 	rows, err := s.q.ListAssignedTalents(ctx, cycle_id)
 	if err != nil {
-		return nil, err
+		return nil, storepg.Translate(err)
 	}
 	out := make([]store.TalentAssignment, len(rows))
 	for i, r := range rows {
@@ -1114,7 +1250,7 @@ func (s *Store) ListAssignedTalents(ctx context.Context, cycle_id string) ([]sto
 func (s *Store) ListAssignmentsByTalent(ctx context.Context, talent_id string) ([]store.TalentAssignment, error) {
 	rows, err := s.q.ListAssignmentsByTalent(ctx, talent_id)
 	if err != nil {
-		return nil, err
+		return nil, storepg.Translate(err)
 	}
 	out := make([]store.TalentAssignment, len(rows))
 	for i, r := range rows {
@@ -1141,10 +1277,9 @@ func (s *Store) UpdateAssignment(ctx context.Context, talent_id, cycle_id string
 	if len(sets) == 0 {
 		return nil
 	}
-	_, err := s.pool.Exec(ctx,
+	return s.execMutation(ctx,
 		"UPDATE talent_assignments SET "+strings.Join(sets, ", ")+
 			" WHERE talent_id = @talent_id AND cycle_id = @cycle_id", args)
-	return err
 }
 
 // ─── Tracking Links ───────────────────────────────────────────────────────────
@@ -1163,7 +1298,7 @@ func (s *Store) CreateTrackingLink(ctx context.Context, l store.TrackingLink) er
 func (s *Store) GetTrackingLinkByToken(ctx context.Context, token string) (store.TrackingLink, error) {
 	l, err := s.q.GetTrackingLinkByToken(ctx, token)
 	if err != nil {
-		return store.TrackingLink{}, err
+		return store.TrackingLink{}, storepg.Translate(err)
 	}
 	return toStoreTrackingLink(l), nil
 }
@@ -1171,7 +1306,7 @@ func (s *Store) GetTrackingLinkByToken(ctx context.Context, token string) (store
 func (s *Store) ListTrackingLinksByCycle(ctx context.Context, cycle_id string) ([]store.TrackingLink, error) {
 	rows, err := s.q.ListTrackingLinksByCycle(ctx, cycle_id)
 	if err != nil {
-		return nil, err
+		return nil, storepg.Translate(err)
 	}
 	out := make([]store.TrackingLink, len(rows))
 	for i, r := range rows {
@@ -1184,17 +1319,17 @@ func (s *Store) ListTrackingLinksByCycle(ctx context.Context, cycle_id string) (
 
 func (s *Store) LogConversionEvent(ctx context.Context, e store.ConversionEvent) error {
 	return s.q.LogConversionEvent(ctx, LogConversionEventParams{
-		ID:              e.ID,
-		LinkToken:       e.Link_token,
-		TalentID:        e.Talent_id,
-		CampaignID:      e.Campaign_id,
-		CycleID:         e.Cycle_id,
-		PipelineType:    string(e.Pipeline_type),
-		EventType:       e.Event_type,
-		KpbType:         pgtype.Text{String: e.KPB_type, Valid: e.KPB_type != ""},
-		ValidLead:       e.Valid_lead,
-		IdempotencyKey:  e.Idempotency_key,
-		OccurredAt:      pgtype.Timestamptz{Time: e.Occurred_at, Valid: true},
+		ID:             e.ID,
+		LinkToken:      e.Link_token,
+		TalentID:       e.Talent_id,
+		CampaignID:     e.Campaign_id,
+		CycleID:        e.Cycle_id,
+		PipelineType:   string(e.Pipeline_type),
+		EventType:      e.Event_type,
+		KpbType:        pgtype.Text{String: e.KPB_type, Valid: e.KPB_type != ""},
+		ValidLead:      e.Valid_lead,
+		IdempotencyKey: e.Idempotency_key,
+		OccurredAt:     pgtype.Timestamptz{Time: e.Occurred_at, Valid: true},
 	})
 }
 
@@ -1233,7 +1368,7 @@ func (s *Store) LockFallbackConversions(ctx context.Context, cycle_id string) er
 func (s *Store) GetCycleState(ctx context.Context, talent_id, cycle_id string) (store.CycleState, error) {
 	st, err := s.q.GetCycleState(ctx, GetCycleStateParams{TalentID: talent_id, CycleID: cycle_id})
 	if err != nil {
-		return store.CycleState{}, err
+		return store.CycleState{}, storepg.Translate(err)
 	}
 	return toStoreCycleState(st), nil
 }
@@ -1261,7 +1396,7 @@ func (s *Store) GetDailyOutputs(ctx context.Context, talent_id, cycle_id string)
 func (s *Store) GetTalentBaseline(ctx context.Context, talent_id string) (store.TalentBaseline, error) {
 	b, err := s.q.GetTalentBaseline(ctx, talent_id)
 	if err != nil {
-		return store.TalentBaseline{}, err
+		return store.TalentBaseline{}, storepg.Translate(err)
 	}
 	return toStoreTalentBaseline(b), nil
 }
@@ -1280,7 +1415,7 @@ func (s *Store) UpsertTalentBaseline(ctx context.Context, b store.TalentBaseline
 func (s *Store) GetCategoryBaseline(ctx context.Context, category string) (algo.CategoryBaseline, error) {
 	row, err := s.q.GetCategoryBaseline(ctx, category)
 	if err != nil {
-		return algo.CategoryBaseline{}, err
+		return algo.CategoryBaseline{}, storepg.Translate(err)
 	}
 	return algo.CategoryBaseline{Category: row.Category, Median: row.Median}, nil
 }
@@ -1338,7 +1473,7 @@ func (s *Store) CreatePayoutRecord(ctx context.Context, p store.PayoutRecord) er
 func (s *Store) GetPayoutRecord(ctx context.Context, talent_id, cycle_id string) (store.PayoutRecord, error) {
 	p, err := s.q.GetPayoutRecord(ctx, GetPayoutRecordParams{TalentID: talent_id, CycleID: cycle_id})
 	if err != nil {
-		return store.PayoutRecord{}, err
+		return store.PayoutRecord{}, storepg.Translate(err)
 	}
 	return toStorePayoutRecord(p), nil
 }
@@ -1346,7 +1481,7 @@ func (s *Store) GetPayoutRecord(ctx context.Context, talent_id, cycle_id string)
 func (s *Store) ListPayoutsByCycle(ctx context.Context, cycle_id string) ([]store.PayoutRecord, error) {
 	rows, err := s.q.ListPayoutsByCycle(ctx, cycle_id)
 	if err != nil {
-		return nil, err
+		return nil, storepg.Translate(err)
 	}
 	out := make([]store.PayoutRecord, len(rows))
 	for i, r := range rows {
@@ -1358,7 +1493,7 @@ func (s *Store) ListPayoutsByCycle(ctx context.Context, cycle_id string) ([]stor
 func (s *Store) ListPayoutsByTalent(ctx context.Context, talent_id string) ([]store.PayoutRecord, error) {
 	rows, err := s.q.ListPayoutsByTalent(ctx, talent_id)
 	if err != nil {
-		return nil, err
+		return nil, storepg.Translate(err)
 	}
 	out := make([]store.PayoutRecord, len(rows))
 	for i, r := range rows {
@@ -1406,9 +1541,8 @@ func (s *Store) UpdatePayoutRecord(ctx context.Context, id string, p store.Payou
 		sets = append(sets, "report_submitted = @report_submitted")
 		args["report_submitted"] = *p.Report_submitted
 	}
-	_, err := s.pool.Exec(ctx,
+	return s.execMutation(ctx,
 		"UPDATE payout_records SET "+strings.Join(sets, ", ")+" WHERE id = @id", args)
-	return err
 }
 
 // ─── Campaign Viewers ─────────────────────────────────────────────────────────
@@ -1426,7 +1560,7 @@ func (s *Store) CreateViewer(ctx context.Context, v store.CampaignViewer) error 
 func (s *Store) GetViewerByToken(ctx context.Context, token string) (store.CampaignViewer, error) {
 	v, err := s.q.GetViewerByToken(ctx, token)
 	if err != nil {
-		return store.CampaignViewer{}, err
+		return store.CampaignViewer{}, storepg.Translate(err)
 	}
 	return toStoreCampaignViewer(v), nil
 }
@@ -1434,7 +1568,7 @@ func (s *Store) GetViewerByToken(ctx context.Context, token string) (store.Campa
 func (s *Store) ListViewersByCampaign(ctx context.Context, campaign_id string) ([]store.CampaignViewer, error) {
 	rows, err := s.q.ListViewersByCampaign(ctx, campaign_id)
 	if err != nil {
-		return nil, err
+		return nil, storepg.Translate(err)
 	}
 	out := make([]store.CampaignViewer, len(rows))
 	for i, r := range rows {
@@ -1457,9 +1591,8 @@ func (s *Store) UpdateViewer(ctx context.Context, id string, p store.ViewerPatch
 	if len(sets) == 0 {
 		return nil
 	}
-	_, err := s.pool.Exec(ctx,
+	return s.execMutation(ctx,
 		"UPDATE campaign_viewers SET "+strings.Join(sets, ", ")+" WHERE id = @id", args)
-	return err
 }
 
 func (s *Store) AddViewerPassword(ctx context.Context, p store.ViewerPassword) error {
@@ -1475,7 +1608,7 @@ func (s *Store) AddViewerPassword(ctx context.Context, p store.ViewerPassword) e
 func (s *Store) ListViewerPasswords(ctx context.Context, viewer_id string) ([]store.ViewerPassword, error) {
 	rows, err := s.q.ListViewerPasswords(ctx, viewer_id)
 	if err != nil {
-		return nil, err
+		return nil, storepg.Translate(err)
 	}
 	out := make([]store.ViewerPassword, len(rows))
 	for i, r := range rows {
@@ -1491,7 +1624,7 @@ func (s *Store) DeactivateViewerPassword(ctx context.Context, id string) error {
 func (s *Store) ValidateViewerPassword(ctx context.Context, viewer_id, password string) (bool, error) {
 	rows, err := s.q.GetAllViewerPasswords(ctx, viewer_id)
 	if err != nil {
-		return false, err
+		return false, storepg.Translate(err)
 	}
 	for _, row := range rows {
 		if bcrypt.CompareHashAndPassword([]byte(row.PasswordHash), []byte(password)) == nil {
@@ -1503,15 +1636,27 @@ func (s *Store) ValidateViewerPassword(ctx context.Context, viewer_id, password 
 
 // ─── Audit Log ────────────────────────────────────────────────────────────────
 
+func auditActorText(actor_id string) pgtype.Text {
+	return pgtype.Text{String: actor_id, Valid: actor_id != ""}
+}
+
 func (s *Store) WriteAuditLog(ctx context.Context, entry store.AuditLog) error {
 	return s.q.WriteAuditLog(ctx, WriteAuditLogParams{
 		ID:          entry.ID,
-		ActorID:     entry.Actor_id,
+		ActorID:     auditActorText(entry.Actor_id),
 		ActionType:  entry.Action_type,
 		EntityType:  entry.Entity_type,
 		EntityID:    entry.Entity_id,
 		BeforeState: entry.Before_state,
 		AfterState:  entry.After_state,
+		RequestID:   entry.Request_id,
+		Seq:         pgtype.Int8{Int64: entry.Seq, Valid: entry.Seq != 0},
+		PrevHash:    entry.Prev_hash,
+		EntryHash:   entry.Entry_hash,
+		Signature:   entry.Signature,
+		ArchiveUri:  entry.Archive_uri,
+		IpAddress:   entry.IP_address,
+		UserAgent:   entry.User_agent,
 	})
 }
 
@@ -1521,11 +1666,144 @@ func (s *Store) ListAuditLog(ctx context.Context, entity_type, entity_id string)
 		EntityID:   entity_id,
 	})
 	if err != nil {
-		return nil, err
+		return nil, storepg.Translate(err)
 	}
 	out := make([]store.AuditLog, len(rows))
 	for i, r := range rows {
 		out[i] = toStoreAuditLog(r)
 	}
 	return out, nil
+}
+
+func (s *Store) GetAuditLogByID(ctx context.Context, id string) (store.AuditLog, error) {
+	row, err := s.q.GetAuditLogByID(ctx, id)
+	if err != nil {
+		return store.AuditLog{}, storepg.Translate(err)
+	}
+	return toStoreAuditLog(row), nil
+}
+
+func (s *Store) GetAuditChainTip(ctx context.Context) (string, int64, error) {
+	tip, err := s.q.GetAuditChainTip(ctx)
+	if err != nil {
+		return "", 0, storepg.Translate(err)
+	}
+	return tip.LastHash, tip.LastSeq, nil
+}
+
+// AppendAuditLog locks the chain tip, assigns seq from tip+1, inserts, and advances the tip.
+// Caller must supply Prev_hash, Entry_hash, Signature, Seq matching tip+1.
+func (s *Store) AppendAuditLog(ctx context.Context, entry store.AuditLog) (store.AuditLog, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return store.AuditLog{}, storepg.Translate(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	qtx := s.q.WithTx(tx)
+	tip, err := qtx.GetAuditChainTipForUpdate(ctx)
+	if err != nil {
+		return store.AuditLog{}, storepg.Translate(err)
+	}
+	if entry.Prev_hash == "" {
+		entry.Prev_hash = tip.LastHash
+	}
+	if entry.Seq == 0 {
+		entry.Seq = tip.LastSeq + 1
+	}
+	if entry.Prev_hash != tip.LastHash || entry.Seq != tip.LastSeq+1 {
+		return store.AuditLog{}, fmt.Errorf("audit_chain_mismatch")
+	}
+
+	if err := qtx.WriteAuditLog(ctx, WriteAuditLogParams{
+		ID:          entry.ID,
+		ActorID:     auditActorText(entry.Actor_id),
+		ActionType:  entry.Action_type,
+		EntityType:  entry.Entity_type,
+		EntityID:    entry.Entity_id,
+		BeforeState: entry.Before_state,
+		AfterState:  entry.After_state,
+		RequestID:   entry.Request_id,
+		Seq:         pgtype.Int8{Int64: entry.Seq, Valid: true},
+		PrevHash:    entry.Prev_hash,
+		EntryHash:   entry.Entry_hash,
+		Signature:   entry.Signature,
+		ArchiveUri:  entry.Archive_uri,
+		IpAddress:   entry.IP_address,
+		UserAgent:   entry.User_agent,
+	}); err != nil {
+		return store.AuditLog{}, storepg.Translate(err)
+	}
+	if err := qtx.UpdateAuditChainTip(ctx, UpdateAuditChainTipParams{
+		LastHash: entry.Entry_hash,
+		LastSeq:  entry.Seq,
+	}); err != nil {
+		return store.AuditLog{}, storepg.Translate(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return store.AuditLog{}, storepg.Translate(err)
+	}
+	entry.Created_at = time.Now().UTC()
+	return entry, nil
+}
+
+func (s *Store) ListAuditLogFiltered(ctx context.Context, f store.AuditFilter) ([]store.AuditLog, error) {
+	limit := f.Limit
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	args := pgx.NamedArgs{
+		"entity_type": f.Entity_type,
+		"entity_id":   f.Entity_id,
+		"actor_id":    f.Actor_id,
+		"action_type": f.Action_type,
+		"after_seq":   f.After_seq,
+		"limit":       limit,
+	}
+	q := `SELECT id, actor_id, action_type, entity_type, entity_id, before_state, after_state,
+		created_at, request_id, seq, prev_hash, entry_hash, signature, archive_uri, ip_address, user_agent
+		FROM audit_log WHERE 1=1`
+	if f.Entity_type != "" {
+		q += " AND entity_type = @entity_type"
+	}
+	if f.Entity_id != "" {
+		q += " AND entity_id = @entity_id"
+	}
+	if f.Actor_id != "" {
+		q += " AND actor_id = @actor_id"
+	}
+	if f.Action_type != "" {
+		q += " AND action_type = @action_type"
+	}
+	if f.From != nil {
+		q += " AND created_at >= @from_ts"
+		args["from_ts"] = *f.From
+	}
+	if f.To != nil {
+		q += " AND created_at <= @to_ts"
+		args["to_ts"] = *f.To
+	}
+	if f.After_seq > 0 {
+		q += " AND seq < @after_seq"
+	}
+	q += " ORDER BY seq DESC LIMIT @limit"
+
+	pgRows, err := s.pool.Query(ctx, q, args)
+	if err != nil {
+		return nil, storepg.Translate(err)
+	}
+	defer pgRows.Close()
+	var out []store.AuditLog
+	for pgRows.Next() {
+		var a AuditLog
+		if err := pgRows.Scan(
+			&a.ID, &a.ActorID, &a.ActionType, &a.EntityType, &a.EntityID,
+			&a.BeforeState, &a.AfterState, &a.CreatedAt, &a.RequestID, &a.Seq,
+			&a.PrevHash, &a.EntryHash, &a.Signature, &a.ArchiveUri, &a.IpAddress, &a.UserAgent,
+		); err != nil {
+			return nil, storepg.Translate(err)
+		}
+		out = append(out, toStoreAuditLog(a))
+	}
+	return out, pgRows.Err()
 }

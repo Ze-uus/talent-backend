@@ -30,6 +30,19 @@ const (
 	Status_rejected  Talent_status = "rejected"
 )
 
+// User_status is the shared account lifecycle for all roles.
+type User_status string
+
+const (
+	User_status_active    User_status = "active"
+	User_status_suspended User_status = "suspended"
+	User_status_banned    User_status = "banned"
+	User_status_deleted   User_status = "deleted"
+	User_status_pending   User_status = "pending"
+	User_status_rejected  User_status = "rejected"
+	User_status_invited   User_status = "invited"
+)
+
 type Campaign_status string
 
 const (
@@ -45,6 +58,7 @@ type Cycle_status string
 const (
 	Cycle_pending Cycle_status = "pending"
 	Cycle_active  Cycle_status = "active"
+	Cycle_paused  Cycle_status = "paused"
 	Cycle_closed  Cycle_status = "closed"
 )
 
@@ -110,6 +124,7 @@ type User struct {
 	Provider              Auth_provider
 	Google_id             string `json:"-"` // never serialize
 	Full_name             string
+	Phone_number          string
 	Avatar_url            string
 	Totp_secret           string `json:"-"` // never serialize — only returned explicitly from enroll
 	Totp_enabled          bool
@@ -118,6 +133,8 @@ type User struct {
 	Invite_token          string    `json:"-"` // never serialize
 	Invite_expires_at     time.Time `json:"-"` // never serialize
 	Active                bool
+	Status                User_status
+	Deleted_at            *time.Time `json:",omitempty"`
 	Created_at            time.Time
 	Updated_at            time.Time
 }
@@ -145,6 +162,7 @@ type Brand struct {
 	Industry    string
 	Description string
 	Website     string
+	Logo_url    string
 	Status      string // "active" | "suspended"
 	Created_at  time.Time
 	Updated_at  time.Time
@@ -199,8 +217,8 @@ type Talent struct {
 // Human ID format: "CRD-26-01" (shortcode-YY-sequential).
 type Campaign struct {
 	ID               string
-	Human_id         string          // e.g. "CRD-26-01" — display identifier
-	Brand_id         string          // FK → brands.id
+	Human_id         string // e.g. "CRD-26-01" — display identifier
+	Brand_id         string // FK → brands.id
 	Name             string
 	Status           Campaign_status
 	Campaign_type    Campaign_type
@@ -213,6 +231,7 @@ type Campaign struct {
 	Urgency_level    Urgency_level
 	Cycle_length     int // 5, 7, or 10 days
 	Creators_allowed bool
+	Content          []ContentItem
 	Start_date       time.Time
 	End_date         time.Time
 	Created_at       time.Time
@@ -225,7 +244,7 @@ type Campaign struct {
 // Human ID format: "CRD-26-01-C2" (campaign human_id + "-C" + cycle_number).
 type Cycle struct {
 	ID               string
-	Human_id         string         // e.g. "CRD-26-01-C2"
+	Human_id         string // e.g. "CRD-26-01-C2"
 	Campaign_id      string
 	Cycle_number     int
 	Status           Cycle_status
@@ -234,6 +253,7 @@ type Cycle struct {
 	Cycle_objective  string
 	Campaign_type    Campaign_type
 	KPB_config       []KPBDefinition // lead_validation only
+	Content_override *[]ContentItem  // nil inherits campaign content
 	Z_factor         float64         // derived from campaign urgency_level at creation
 	Start_date       time.Time
 	End_date         time.Time
@@ -245,6 +265,20 @@ type KPBDefinition struct {
 	Label    string  `json:"label"`
 	Cost     float64 `json:"cost"`
 	Quantity int     `json:"quantity"`
+}
+
+type ContentItem struct {
+	ID          string        `json:"id"`
+	Title       string        `json:"title"`
+	Description string        `json:"description"`
+	Images      []string      `json:"images"`
+	Links       []ContentLink `json:"links"`
+}
+
+type ContentLink struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	URL   string `json:"url"`
 }
 
 // ─── Budget Slot ──────────────────────────────────────────────────────────────
@@ -443,5 +477,25 @@ type AuditLog struct {
 	Entity_id    string
 	Before_state []byte
 	After_state  []byte
+	Request_id   string
+	Seq          int64
+	Prev_hash    string
+	Entry_hash   string
+	Signature    string
+	Archive_uri  string
+	IP_address   string
+	User_agent   string
 	Created_at   time.Time
+}
+
+// AuditFilter scopes list queries for admin audit APIs.
+type AuditFilter struct {
+	Entity_type string
+	Entity_id   string
+	Actor_id    string
+	Action_type string
+	From        *time.Time
+	To          *time.Time
+	After_seq   int64 // cursor: return rows with seq < After_seq (newer-first)
+	Limit       int
 }

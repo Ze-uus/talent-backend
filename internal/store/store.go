@@ -63,13 +63,20 @@ type Store interface {
 	ListActiveCampaigns(ctx context.Context) ([]Campaign, error)
 	UpdateCampaign(ctx context.Context, id string, patch CampaignPatch) error
 	DecrementRemainingBudget(ctx context.Context, campaign_id string, amount float64) error
-	// NextCampaignHumanID returns the next available human_id for a brand in the current month.
-	NextCampaignHumanID(ctx context.Context, brand_shortcode string) (string, error)
+	// NextCampaignHumanID looks up the brand by UUID and returns the next human_id
+	// for the current month (e.g. "CRD-26-01" from the brand shortcode).
+	NextCampaignHumanID(ctx context.Context, brand_id string) (string, error)
 
 	// --- Campaign manager assignments ---
 	GetCampaignsByManagerID(ctx context.Context, manager_id string) ([]Campaign, error)
+	ListManagersByCampaignID(ctx context.Context, campaign_id string) ([]User, error)
 	AssignManagerToCampaign(ctx context.Context, manager_id, campaign_id, assigned_by string) error
 	UnassignManagerFromCampaign(ctx context.Context, manager_id, campaign_id string) error
+
+	// --- Email dispatches (idempotent reminder/digest sends) ---
+	// TryRecordEmailDispatch inserts a dispatch row; returns true if this was the first send.
+	TryRecordEmailDispatch(ctx context.Context, entity_type, entity_id, template_key, recipient string) (bool, error)
+	EmailDispatchExists(ctx context.Context, entity_type, entity_id, template_key, recipient string) (bool, error)
 
 	// --- Cycles ---
 	CreateCycle(ctx context.Context, c Cycle) error
@@ -138,12 +145,18 @@ type Store interface {
 	// --- Audit log ---
 	WriteAuditLog(ctx context.Context, entry AuditLog) error
 	ListAuditLog(ctx context.Context, entity_type, entity_id string) ([]AuditLog, error)
+	GetAuditLogByID(ctx context.Context, id string) (AuditLog, error)
+	ListAuditLogFiltered(ctx context.Context, f AuditFilter) ([]AuditLog, error)
+	// AppendAuditLog inserts a chained entry and advances the tip under a row lock.
+	AppendAuditLog(ctx context.Context, entry AuditLog) (AuditLog, error)
+	GetAuditChainTip(ctx context.Context) (last_hash string, last_seq int64, err error)
 }
 
 // ─── Patch types ──────────────────────────────────────────────────────────────
 
 type UserPatch struct {
 	Full_name             *string
+	Phone_number          *string
 	Avatar_url            *string
 	Password_hash         *string
 	Totp_secret           *string
@@ -153,6 +166,8 @@ type UserPatch struct {
 	Invite_token          *string
 	Invite_expires_at     *time.Time
 	Active                *bool
+	Status                *string
+	Deleted_at            *time.Time
 }
 
 type BrandPatch struct {
@@ -160,6 +175,7 @@ type BrandPatch struct {
 	Industry    *string
 	Description *string
 	Website     *string
+	Logo_url    *string
 	Status      *string
 }
 
@@ -190,14 +206,16 @@ type CampaignPatch struct {
 	Cycle_length     *int
 	End_date         *time.Time
 	Creators_allowed *bool
+	Content          *[]ContentItem
 }
 
 type CyclePatch struct {
-	Status          *string
-	Cycle_budget    *float64
-	Cycle_objective *string
-	Z_factor        *float64
-	End_date        *time.Time
+	Status           *string
+	Cycle_budget     *float64
+	Cycle_objective  *string
+	Z_factor         *float64
+	End_date         *time.Time
+	Content_override *[]ContentItem // pointer-to-nil clears the override
 }
 
 type AssignmentPatch struct {
@@ -228,6 +246,7 @@ type ViewerPatch struct {
 type UserFilter struct {
 	Role   string
 	Active *bool
+	Status string
 }
 
 type BrandFilter struct {

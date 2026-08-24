@@ -10,8 +10,8 @@ import (
 )
 
 const createBrand = `-- name: CreateBrand :exec
-INSERT INTO brands (id, name, shortcode, industry, description, website, status)
-VALUES ($1,$2,$3,$4,$5,$6,$7)
+INSERT INTO brands (id, name, shortcode, industry, description, website, status, logo_url)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 `
 
 type CreateBrandParams struct {
@@ -22,6 +22,7 @@ type CreateBrandParams struct {
 	Description string
 	Website     string
 	Status      string
+	LogoUrl     string
 }
 
 func (q *Queries) CreateBrand(ctx context.Context, arg CreateBrandParams) error {
@@ -33,6 +34,7 @@ func (q *Queries) CreateBrand(ctx context.Context, arg CreateBrandParams) error 
 		arg.Description,
 		arg.Website,
 		arg.Status,
+		arg.LogoUrl,
 	)
 	return err
 }
@@ -82,7 +84,7 @@ func (q *Queries) DeactivateBrandContact(ctx context.Context, id string) error {
 }
 
 const getBrandByID = `-- name: GetBrandByID :one
-SELECT id, name, shortcode, industry, description, website, status, created_at, updated_at FROM brands WHERE id = $1
+SELECT id, name, shortcode, industry, description, website, status, created_at, updated_at, logo_url FROM brands WHERE id = $1
 `
 
 func (q *Queries) GetBrandByID(ctx context.Context, id string) (Brand, error) {
@@ -98,12 +100,13 @@ func (q *Queries) GetBrandByID(ctx context.Context, id string) (Brand, error) {
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LogoUrl,
 	)
 	return i, err
 }
 
 const getBrandByShortcode = `-- name: GetBrandByShortcode :one
-SELECT id, name, shortcode, industry, description, website, status, created_at, updated_at FROM brands WHERE shortcode = $1
+SELECT id, name, shortcode, industry, description, website, status, created_at, updated_at, logo_url FROM brands WHERE shortcode = $1
 `
 
 func (q *Queries) GetBrandByShortcode(ctx context.Context, shortcode string) (Brand, error) {
@@ -119,6 +122,7 @@ func (q *Queries) GetBrandByShortcode(ctx context.Context, shortcode string) (Br
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LogoUrl,
 	)
 	return i, err
 }
@@ -237,7 +241,7 @@ func (q *Queries) ListBrandContacts(ctx context.Context, brandID string) ([]Bran
 }
 
 const listBrands = `-- name: ListBrands :many
-SELECT id, name, shortcode, industry, description, website, status, created_at, updated_at FROM brands
+SELECT id, name, shortcode, industry, description, website, status, created_at, updated_at, logo_url FROM brands
 WHERE ($1::text = '' OR status = $1)
 ORDER BY created_at DESC
 LIMIT NULLIF($2::int, 0) OFFSET $3::int
@@ -268,6 +272,7 @@ func (q *Queries) ListBrands(ctx context.Context, arg ListBrandsParams) ([]Brand
 			&i.Status,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.LogoUrl,
 		); err != nil {
 			return nil, err
 		}

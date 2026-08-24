@@ -16,6 +16,13 @@ services:
       timeout: 3s
       retries: 5
 
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # Web UI
+
   app:
     build:
       context: .
@@ -26,12 +33,15 @@ services:
       - "${PORT:-8080}:8080"
     env_file:
       - .env.local
-    environment:
-      DATABASE_URL: postgres://scaloo:scaloo@db:5432/scaloo?sslmode=disable
-      APP_ENV: ${APP_ENV:-development}
+    # environment:
+    #   DATABASE_URL: postgres://scaloo:scaloo@db:5432/scaloo?sslmode=disable
+    #   APP_ENV: ${APP_ENV:-development}
+    #   SMTP_HOST: mailpit
     depends_on:
       db:
         condition: service_healthy
+      mailpit:
+        condition: service_started
 
 volumes:
   pgdata:

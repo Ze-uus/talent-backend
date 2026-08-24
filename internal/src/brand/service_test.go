@@ -1,12 +1,15 @@
 package brand_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Ze-uus/talent-backend/internal/algo"
+	"github.com/Ze-uus/talent-backend/internal/media"
 	"github.com/Ze-uus/talent-backend/internal/src/brand"
 	"github.com/Ze-uus/talent-backend/internal/store"
 )
@@ -29,6 +32,9 @@ func newMock() *mockStore {
 }
 
 func (m *mockStore) CreateBrand(_ context.Context, b store.Brand) error {
+	if b.ID == "" {
+		b.ID = "brand-" + b.Shortcode
+	}
 	m.brands[b.Shortcode] = b
 	return nil
 }
@@ -54,7 +60,33 @@ func (m *mockStore) ListBrands(_ context.Context, _ store.BrandFilter) ([]store.
 	}
 	return out, nil
 }
-func (m *mockStore) UpdateBrand(_ context.Context, _ string, _ store.BrandPatch) error { return nil }
+func (m *mockStore) UpdateBrand(_ context.Context, id string, p store.BrandPatch) error {
+	for sc, b := range m.brands {
+		if b.ID == id {
+			if p.Name != nil {
+				b.Name = *p.Name
+			}
+			if p.Industry != nil {
+				b.Industry = *p.Industry
+			}
+			if p.Description != nil {
+				b.Description = *p.Description
+			}
+			if p.Website != nil {
+				b.Website = *p.Website
+			}
+			if p.Logo_url != nil {
+				b.Logo_url = *p.Logo_url
+			}
+			if p.Status != nil {
+				b.Status = *p.Status
+			}
+			m.brands[sc] = b
+			return nil
+		}
+	}
+	return errors.New("not_found")
+}
 func (m *mockStore) ShortcodeExists(_ context.Context, sc string) (bool, error) {
 	_, ok := m.brands[sc]
 	return ok, nil
@@ -118,6 +150,19 @@ func (m *mockStore) WriteAuditLog(_ context.Context, entry store.AuditLog) error
 	m.audit_log = append(m.audit_log, entry)
 	return nil
 }
+
+func (m *mockStore) GetAuditLogByID(_ context.Context, _ string) (store.AuditLog, error) {
+	return store.AuditLog{}, nil
+}
+func (m *mockStore) ListAuditLogFiltered(_ context.Context, _ store.AuditFilter) ([]store.AuditLog, error) {
+	return nil, nil
+}
+func (m *mockStore) AppendAuditLog(_ context.Context, e store.AuditLog) (store.AuditLog, error) {
+	return e, nil
+}
+func (m *mockStore) GetAuditChainTip(_ context.Context) (string, int64, error) {
+	return "0000000000000000000000000000000000000000000000000000000000000000", 0, nil
+}
 func (m *mockStore) ListAuditLog(_ context.Context, _, _ string) ([]store.AuditLog, error) {
 	return m.audit_log, nil
 }
@@ -154,6 +199,10 @@ func (m *mockStore) NextCampaignHumanID(_ context.Context, _ string) (string, er
 func (m *mockStore) GetCampaignsByManagerID(_ context.Context, _ string) ([]store.Campaign, error) { return nil, nil }
 func (m *mockStore) AssignManagerToCampaign(_ context.Context, _, _, _ string) error   { return nil }
 func (m *mockStore) UnassignManagerFromCampaign(_ context.Context, _, _ string) error  { return nil }
+func (m *mockStore) ListManagersByCampaignID(_ context.Context, _ string) ([]store.User, error) { return nil, nil }
+func (m *mockStore) TryRecordEmailDispatch(_ context.Context, _, _, _, _ string) (bool, error) { return true, nil }
+func (m *mockStore) EmailDispatchExists(_ context.Context, _, _, _, _ string) (bool, error) { return false, nil }
+
 func (m *mockStore) CreateCycle(_ context.Context, _ store.Cycle) error                { return nil }
 func (m *mockStore) GetCycleByID(_ context.Context, _ string) (store.Cycle, error)     { return store.Cycle{}, nil }
 func (m *mockStore) ListCyclesByCampaign(_ context.Context, _ string) ([]store.Cycle, error) { return nil, nil }
@@ -202,7 +251,7 @@ func (m *mockStore) ValidateViewerPassword(_ context.Context, _, _ string) (bool
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 func TestAddContact_GeneratesCredentials(t *testing.T) {
-	svc := brand.New(newMock())
+	svc := brand.New(newMock(), nil, nil)
 	contact, plain, err := svc.AddContact(context.Background(), "brand-1", "Ada", "Obi", "CMO", "ada@test.com", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -225,7 +274,7 @@ func TestAddContact_MaxContactsEnforced(t *testing.T) {
 		token := string(rune('a' + i))
 		ms.contacts[token] = store.BrandContact{Brand_id: "brand-1", Token_active: true, Viewer_token: token}
 	}
-	svc := brand.New(ms)
+	svc := brand.New(ms, nil, nil)
 	_, _, err := svc.AddContact(context.Background(), "brand-1", "X", "Y", "role", "x@y.com", "")
 	if err == nil || err.Error() != "max_contacts_reached" {
 		t.Errorf("expected max_contacts_reached, got %v", err)
@@ -235,7 +284,7 @@ func TestAddContact_MaxContactsEnforced(t *testing.T) {
 func TestRegeneratePassword_OldHashReplaced(t *testing.T) {
 	ms := newMock()
 	ms.contacts["tok1"] = store.BrandContact{ID: "c1", Brand_id: "brand-1", Viewer_token: "tok1", Access_password_hash: "old_hash", Token_active: true}
-	svc := brand.New(ms)
+	svc := brand.New(ms, nil, nil)
 	plain, err := svc.RegeneratePassword(context.Background(), "c1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -254,7 +303,7 @@ func TestRegeneratePassword_OldHashReplaced(t *testing.T) {
 func TestRemoveContact_SoftDelete(t *testing.T) {
 	ms := newMock()
 	ms.contacts["tok2"] = store.BrandContact{ID: "c2", Brand_id: "brand-1", Viewer_token: "tok2", Token_active: true}
-	svc := brand.New(ms)
+	svc := brand.New(ms, nil, nil)
 	if err := svc.RemoveContact(context.Background(), "c2", "actor-1"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -265,3 +314,46 @@ func TestRemoveContact_SoftDelete(t *testing.T) {
 		t.Error("audit log should have an entry")
 	}
 }
+
+func TestCreate_WithLogo(t *testing.T) {
+	ms := newMock()
+	up := &media.RecordingUploader{Result: media.UploadResult{URL: "https://ik.imagekit.io/test/logo.png"}}
+	svc := brand.New(ms, up, nil)
+	png := []byte{0x89, 0x50, 0x4e, 0x47}
+	b, err := svc.Create(context.Background(), "Acme", "fintech", "", "https://acme.test", &brand.LogoFile{
+		Body:        bytes.NewReader(png),
+		ContentType: "image/png",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if b.Logo_url != "https://ik.imagekit.io/test/logo.png" {
+		t.Fatalf("logo_url=%q", b.Logo_url)
+	}
+	if len(up.Calls) != 1 {
+		t.Fatalf("expected 1 upload, got %d", len(up.Calls))
+	}
+	if !strings.HasPrefix(up.Calls[0].Folder, "/scaloo/brands/") {
+		t.Fatalf("folder=%q", up.Calls[0].Folder)
+	}
+}
+
+func TestCreate_LogoUploadFailureKeepsBrand(t *testing.T) {
+	ms := newMock()
+	up := &media.RecordingUploader{Err: errors.New("ik_down")}
+	svc := brand.New(ms, up, nil)
+	b, err := svc.Create(context.Background(), "Beta", "retail", "", "", &brand.LogoFile{
+		Body:        bytes.NewReader([]byte("x")),
+		ContentType: "image/jpeg",
+	})
+	if err == nil || !errors.Is(err, brand.ErrLogoUploadFailed) {
+		t.Fatalf("expected logo_upload_failed, got %v", err)
+	}
+	if b.Shortcode == "" {
+		t.Fatal("brand should still be returned after logo failure")
+	}
+	if _, ok := ms.brands[b.Shortcode]; !ok {
+		t.Fatal("brand should remain in store")
+	}
+}
+

@@ -10,11 +10,13 @@ import (
 	"os"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 
+	"github.com/Ze-uus/talent-backend/internal/mail"
 	"github.com/Ze-uus/talent-backend/internal/store"
 )
 
@@ -36,6 +38,10 @@ var (
 	err_session_inactive    = errors.New("session_inactive")
 	err_account_pending     = errors.New("account_pending_approval")
 	err_account_suspended   = errors.New("account_suspended")
+	err_account_banned      = errors.New("account_banned")
+	err_account_deleted     = errors.New("account_deleted")
+	err_account_rejected    = errors.New("account_rejected")
+	err_account_invited     = errors.New("account_invited")
 	err_invalid_invite      = errors.New("invalid_or_expired_invite")
 	err_viewer_invalid      = errors.New("invalid_viewer_credentials")
 	err_bootstrap_exists    = errors.New("superadmin_already_exists")
@@ -45,10 +51,11 @@ type AuthService struct {
 	store       store.Store
 	issuer      string // "Scaloo"
 	google_conf *oauth2.Config
+	mail        *mail.Service
 }
 
-func NewAuthService(s store.Store, issuer string) *AuthService {
-	return &AuthService{store: s, issuer: issuer}
+func NewAuthService(s store.Store, issuer string, mailSvc *mail.Service) *AuthService {
+	return &AuthService{store: s, issuer: issuer, mail: mailSvc}
 }
 
 // WithGoogleOAuth adds Google OAuth support to the service.
@@ -92,6 +99,7 @@ func (a *AuthService) BootstrapSuperAdmin(ctx context.Context) error {
 		Role:          store.Role_superadmin,
 		Provider:      store.Provider_local,
 		Active:        true,
+		Status:        store.User_status_active,
 	})
 }
 
@@ -123,9 +131,13 @@ func (a *AuthService) createInvite(ctx context.Context, email, full_name string,
 		Invite_token:      token,
 		Invite_expires_at: expires,
 		Active:            false,
+		Status:            store.User_status_invited,
 	}
 	if err := a.store.CreateUser(ctx, u); err != nil {
 		return "", err
+	}
+	if a.mail != nil {
+		a.mail.NotifyStaffInvite(email, full_name, string(role), token)
 	}
 	return token, nil
 }
@@ -143,29 +155,46 @@ func (a *AuthService) VerifyInvite(ctx context.Context, invite_token, password s
 	}
 	empty := ""
 	active := true
+	status := string(store.User_status_active)
 	_ = a.store.UpdateUser(ctx, u.ID, store.UserPatch{
 		Password_hash: strPtr(string(hash)),
 		Invite_token:  &empty,
 		Active:        &active,
+		Status:        &status,
 	})
 	return a.store.GetUserByID(ctx, u.ID)
 }
 
 // ─── Talent registration ──────────────────────────────────────────────────────
 
-func (a *AuthService) RegisterTalent(ctx context.Context, email, password, full_name string) error {
+func (a *AuthService) RegisterTalent(ctx context.Context, email, password, full_name, phone_number string) error {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt_cost)
 	if err != nil {
 		return err
 	}
-	return a.store.CreateUser(ctx, store.User{
+	if err := a.store.CreateUser(ctx, store.User{
 		Email:         email,
 		Password_hash: string(hash),
 		Full_name:     full_name,
+		Phone_number:  phone_number,
 		Role:          store.Role_talent,
 		Provider:      store.Provider_local,
 		Active:        true,
-	})
+		Status:        store.User_status_pending,
+	}); err != nil {
+		return err
+	}
+	user, err := a.store.GetUserByEmail(ctx, email)
+	if err != nil {
+		return err
+	}
+	if err := a.createPendingTalent(ctx, user.ID); err != nil {
+		return err
+	}
+	if a.mail != nil {
+		a.mail.NotifyTalentRegistered(email, full_name)
+	}
+	return nil
 }
 
 func (a *AuthService) RegisterTalentGoogle(ctx context.Context, google_id, email, full_name, avatar_url string) (store.User, error) {
@@ -181,19 +210,77 @@ func (a *AuthService) RegisterTalentGoogle(ctx context.Context, google_id, email
 		Provider:   store.Provider_google,
 		Google_id:  google_id,
 		Active:     true,
+		Status:     store.User_status_pending,
 	}); err != nil {
 		return store.User{}, err
 	}
-	return a.store.GetUserByEmail(ctx, email)
+	user, err := a.store.GetUserByEmail(ctx, email)
+	if err != nil {
+		return store.User{}, err
+	}
+	if err := a.createPendingTalent(ctx, user.ID); err != nil {
+		return store.User{}, err
+	}
+	if a.mail != nil {
+		a.mail.NotifyTalentRegistered(email, full_name)
+	}
+	return user, nil
+}
+
+// createPendingTalent inserts the talents row linked to a new talent user.
+// Category is provisional (student) until an admin approves with the real category.
+func (a *AuthService) createPendingTalent(ctx context.Context, user_id string) error {
+	return a.store.CreateTalent(ctx, store.Talent{
+		ID:                uuid.NewString(),
+		User_id:           user_id,
+		Category:          store.Category_student,
+		Status:            store.Status_pending,
+		Skills:            []string{},
+		Report_compliance: 1.0,
+	})
 }
 
 // ─── Login ────────────────────────────────────────────────────────────────────
 
-// LoginResult carries the session token plus any setup flags the frontend needs.
+// LoginResult carries the session token plus routing fields the frontend needs.
 type LoginResult struct {
 	Token              string
+	User_id            string
+	Role               store.User_role
+	Status             store.User_status
+	Active             bool
 	Require_totp_setup bool // true when talent has not yet enrolled TOTP
 	Totp_recheck_due   bool // true when 72h interval has passed and TOTP is needed
+}
+
+func statusGateError(status store.User_status) error {
+	switch status {
+	case store.User_status_deleted:
+		return err_account_deleted
+	case store.User_status_banned:
+		return err_account_banned
+	case store.User_status_suspended:
+		return err_account_suspended
+	case store.User_status_pending:
+		return err_account_pending
+	case store.User_status_rejected:
+		return err_account_rejected
+	case store.User_status_invited:
+		return err_account_invited
+	default:
+		return nil
+	}
+}
+
+func sessionBlocked(status store.User_status) bool {
+	switch status {
+	case store.User_status_suspended, store.User_status_banned,
+		store.User_status_deleted, store.User_status_rejected,
+		store.User_status_invited:
+		return true
+	default:
+		return false
+	}
 }
 
 // Login handles login for all roles.
@@ -201,27 +288,27 @@ type LoginResult struct {
 // talent: TOTP required only if 72h elapsed since last verification.
 func (a *AuthService) Login(ctx context.Context, email, password, totp_code, ip, ua string) (LoginResult, error) {
 	u, err := a.store.GetUserByEmail(ctx, email)
-	if err != nil || !u.Active {
+	if err != nil {
 		return LoginResult{}, err_invalid_credentials
 	}
 
-	if u.Role == store.Role_talent {
-		talent, err := a.store.GetTalentByUserID(ctx, u.ID)
-		if err == nil {
-			switch talent.Status {
-			case store.Status_pending:
-				return LoginResult{}, err_account_pending
-			case store.Status_suspended:
-				return LoginResult{}, err_account_suspended
-			}
-		}
+	if err := statusGateError(u.Status); err != nil {
+		return LoginResult{}, err
+	}
+	if !u.Active {
+		return LoginResult{}, err_invalid_credentials
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(u.Password_hash), []byte(password)); err != nil {
 		return LoginResult{}, err_invalid_credentials
 	}
 
-	result := LoginResult{}
+	result := LoginResult{
+		User_id: u.ID,
+		Role:    u.Role,
+		Status:  u.Status,
+		Active:  u.Active,
+	}
 
 	switch u.Role {
 	case store.Role_superadmin, store.Role_admin, store.Role_campaign_manager:
@@ -244,7 +331,6 @@ func (a *AuthService) Login(ctx context.Context, email, password, totp_code, ip,
 			now := time.Now().UTC()
 			_ = a.store.UpdateUser(ctx, u.ID, store.UserPatch{Totp_last_verified_at: &now})
 		}
-		// If totp not yet verified: allow login, frontend handles enrollment prompt
 	}
 
 	issued, err := a.issueSession(ctx, u, ip, ua)
@@ -252,12 +338,19 @@ func (a *AuthService) Login(ctx context.Context, email, password, totp_code, ip,
 		return LoginResult{}, err
 	}
 	result.Token = issued.Token
+	result.Require_totp_setup = issued.Require_totp_setup || result.Require_totp_setup
 	return result, nil
 }
 
 // issueSession creates a new session for an already-authenticated user.
 // Used by Login and the Google OAuth callback.
 func (a *AuthService) issueSession(ctx context.Context, u store.User, ip, ua string) (LoginResult, error) {
+	if err := statusGateError(u.Status); err != nil {
+		return LoginResult{}, err
+	}
+	if !u.Active {
+		return LoginResult{}, err_invalid_credentials
+	}
 	session_duration := talent_session_duration
 	switch u.Role {
 	case store.Role_superadmin, store.Role_admin, store.Role_campaign_manager:
@@ -279,6 +372,10 @@ func (a *AuthService) issueSession(ctx context.Context, u store.User, ip, ua str
 	}
 	return LoginResult{
 		Token:              token,
+		User_id:            u.ID,
+		Role:               u.Role,
+		Status:             u.Status,
+		Active:             u.Active,
 		Require_totp_setup: !u.Totp_verified,
 	}, nil
 }
@@ -348,7 +445,18 @@ func (a *AuthService) ValidateSession(ctx context.Context, token string) (store.
 		return store.User{}, err_session_inactive
 	}
 	_ = a.store.TouchSession(ctx, token, time.Now().UTC())
-	return a.store.GetUserByID(ctx, sess.User_id)
+	u, err := a.store.GetUserByID(ctx, sess.User_id)
+	if err != nil {
+		return store.User{}, err_session_expired
+	}
+	if sessionBlocked(u.Status) {
+		_ = a.store.InvalidateSession(ctx, token)
+		if err := statusGateError(u.Status); err != nil {
+			return store.User{}, err
+		}
+		return store.User{}, err_account_suspended
+	}
+	return u, nil
 }
 
 func (a *AuthService) Logout(ctx context.Context, token string) error {

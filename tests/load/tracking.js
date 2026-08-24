@@ -33,7 +33,7 @@ export default function () {
   };
 
   const res = http.post(
-    `${BASE_URL}/v1/track/${TRACK_TOKEN}`,
+    `${BASE_URL}/v1/t/${TRACK_TOKEN}`,
     payload,
     params
   );

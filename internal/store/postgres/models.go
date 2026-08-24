@@ -8,15 +8,30 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AuditChainTip struct {
+	ID        int32
+	LastHash  string
+	LastSeq   int64
+	UpdatedAt pgtype.Timestamptz
+}
+
 type AuditLog struct {
 	ID          string
-	ActorID     string
+	ActorID     pgtype.Text
 	ActionType  string
 	EntityType  string
 	EntityID    string
 	BeforeState []byte
 	AfterState  []byte
 	CreatedAt   pgtype.Timestamptz
+	RequestID   string
+	Seq         pgtype.Int8
+	PrevHash    string
+	EntryHash   string
+	Signature   string
+	ArchiveUri  string
+	IpAddress   string
+	UserAgent   string
 }
 
 type Brand struct {
@@ -29,6 +44,7 @@ type Brand struct {
 	Status      string
 	CreatedAt   pgtype.Timestamptz
 	UpdatedAt   pgtype.Timestamptz
+	LogoUrl     string
 }
 
 type BrandContact struct {
@@ -76,6 +92,7 @@ type Campaign struct {
 	EndDate         pgtype.Timestamptz
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
+	Content         []byte
 }
 
 type CampaignViewer struct {
@@ -123,6 +140,7 @@ type Cycle struct {
 	EndDate         pgtype.Timestamptz
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
+	ContentOverride []byte
 }
 
 type CycleReport struct {
@@ -132,6 +150,15 @@ type CycleReport struct {
 	MaxSpendDecisionLabel         pgtype.Text
 	PredictedDailyConversionsNext pgtype.Numeric
 	GeneratedAt                   pgtype.Timestamptz
+}
+
+type EmailDispatch struct {
+	ID          string
+	EntityType  string
+	EntityID    string
+	TemplateKey string
+	Recipient   string
+	SentAt      pgtype.Timestamptz
 }
 
 type ManagerCampaignAssignment struct {
@@ -285,6 +312,9 @@ type User struct {
 	Active             bool
 	CreatedAt          pgtype.Timestamptz
 	UpdatedAt          pgtype.Timestamptz
+	Status             string
+	DeletedAt          pgtype.Timestamptz
+	PhoneNumber        string
 }
 
 type ViewerPassword struct {

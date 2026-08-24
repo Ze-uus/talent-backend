@@ -24,7 +24,7 @@ type Mailer interface {
 	SendAsync(msg Message)
 }
 
-// Config holds SMTP connection settings.
+// Config holds mailer connection settings.
 type Config struct {
 	Host     string
 	Port     int
@@ -32,15 +32,26 @@ type Config struct {
 	Password string
 	From     string
 	TLS      bool
+	APIKey   string
+	Endpoint string
 	AppURL   string
 	Log      *slog.Logger
 }
 
-// New returns an SMTPMailer when Host is set, otherwise a NopMailer.
+// New returns a ResendMailer when APIKey is set, an SMTPMailer when Host is set, otherwise a NopMailer.
 func New(cfg Config) Mailer {
 	log := cfg.Log
 	if log == nil {
 		log = slog.Default()
+	}
+	if key := strings.TrimSpace(cfg.APIKey); key != "" {
+		log.Info("mail: using Resend HTTP API")
+		return &ResendMailer{
+			APIKey:   key,
+			From:     cfg.From,
+			Endpoint: cfg.Endpoint,
+			Log:      log,
+		}
 	}
 	if strings.TrimSpace(cfg.Host) == "" {
 		log.Info("mail: SMTP_HOST empty — using NopMailer")
@@ -75,7 +86,7 @@ func (m *SMTPMailer) Send(ctx context.Context, msg Message) error {
 	addr := fmt.Sprintf("%s:%d", m.Host, m.Port)
 	from := m.From
 	if from == "" {
-		from = "reward@usecaloo.com"
+		from = defaultFrom
 	}
 
 	headers := []string{
@@ -105,7 +116,7 @@ func (m *SMTPMailer) Send(ctx context.Context, msg Message) error {
 	if err != nil {
 		return fmt.Errorf("mail: dial: %w", err)
 	}
-	defer func() {_ = conn.Close() } ()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(deadline)
 
 	var client *smtp.Client

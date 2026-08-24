@@ -1,6 +1,11 @@
 package mail_test
 
 import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -54,5 +59,90 @@ func TestNewNopWhenHostEmpty(t *testing.T) {
 	m := mail.New(mail.Config{Host: ""})
 	if _, ok := m.(*mail.NopMailer); !ok {
 		t.Fatalf("expected NopMailer, got %T", m)
+	}
+}
+
+func TestNewResendWhenAPIKeySet(t *testing.T) {
+	m := mail.New(mail.Config{APIKey: "re_test", Host: "localhost"})
+	if _, ok := m.(*mail.ResendMailer); !ok {
+		t.Fatalf("expected ResendMailer, got %T", m)
+	}
+}
+
+func TestNewSMTPWhenOnlyHostSet(t *testing.T) {
+	m := mail.New(mail.Config{Host: "localhost"})
+	if _, ok := m.(*mail.SMTPMailer); !ok {
+		t.Fatalf("expected SMTPMailer, got %T", m)
+	}
+}
+
+func TestResendSendPostsExpectedJSON(t *testing.T) {
+	var gotAuth, gotCT, gotMethod string
+	var payload map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotAuth = r.Header.Get("Authorization")
+		gotCT = r.Header.Get("Content-Type")
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &payload)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"email_123"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	m := mail.New(mail.Config{
+		APIKey:   "re_test",
+		From:     "Scaloo <reward@chibuzo.com.ng>",
+		Endpoint: srv.URL,
+	})
+	err := m.Send(context.Background(), mail.Message{
+		To: "ada@example.com", Subject: "Hello", HTML: "<p>Hi</p>",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotMethod != http.MethodPost {
+		t.Fatalf("method=%s", gotMethod)
+	}
+	if gotAuth != "Bearer re_test" {
+		t.Fatalf("auth=%q", gotAuth)
+	}
+	if gotCT != "application/json" {
+		t.Fatalf("content-type=%q", gotCT)
+	}
+	if payload["from"] != "Scaloo <reward@chibuzo.com.ng>" {
+		t.Fatalf("from=%v", payload["from"])
+	}
+	if payload["subject"] != "Hello" {
+		t.Fatalf("subject=%v", payload["subject"])
+	}
+	if payload["html"] != "<p>Hi</p>" {
+		t.Fatalf("html=%v", payload["html"])
+	}
+	to, _ := payload["to"].([]any)
+	if len(to) != 1 || to[0] != "ada@example.com" {
+		t.Fatalf("to=%v", payload["to"])
+	}
+}
+
+func TestResendSendSurfacesError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"message":"Invalid from address"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	m := mail.New(mail.Config{APIKey: "re_test", Endpoint: srv.URL})
+	err := m.Send(context.Background(), mail.Message{
+		To: "ada@example.com", Subject: "Hello", HTML: "<p>Hi</p>",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "422") && !strings.Contains(err.Error(), "Unprocessable") {
+		t.Fatalf("err=%v", err)
+	}
+	if !strings.Contains(err.Error(), "Invalid from address") {
+		t.Fatalf("err=%v", err)
 	}
 }

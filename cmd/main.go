@@ -83,6 +83,7 @@ func main() {
 		Password: cfg.SMTP_password,
 		From:     cfg.SMTP_from,
 		TLS:      cfg.SMTP_tls,
+		APIKey:   cfg.Resend_api_key,
 		AppURL:   cfg.App_url,
 		Log:      log,
 	})

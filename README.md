@@ -118,11 +118,12 @@ make all             # full cycle: lint → test → migrate → build → docke
 | `ALLOWED_ORIGINS` | No | `http://localhost:3000` | CORS origins (comma-separated) |
 | `RATE_LIMIT_RPS` | No | `100` | Requests/sec per IP |
 | `DELTA_LT` | No | `0.97` | Long-term Bayesian decay rate |
-| `SMTP_HOST` | No | — | SMTP host; empty disables outbound mail |
+| `RESEND_API_KEY` | Prod mail | — | Resend API key; when set, mail uses the HTTP API |
+| `SMTP_HOST` | Local mail | — | SMTP host; used when `RESEND_API_KEY` is empty |
 | `SMTP_PORT` | No | `1025` | SMTP port (Mailpit local default) |
 | `SMTP_USER` | No | — | SMTP username (optional) |
 | `SMTP_PASSWORD` | No | — | SMTP password (optional) |
-| `SMTP_FROM` | No | `Scaloo <noreply@scaloo.local>` | From header |
+| `SMTP_FROM` | No | `Scaloo <noreply@scaloo.local>` | From header (Resend and SMTP) |
 | `SMTP_TLS` | No | `false` | Use STARTTLS |
 | `IMAGEKIT_PRIVATE_KEY` | Uploads | — | ImageKit private key; empty disables uploads |
 | `IMAGEKIT_PUBLIC_KEY` | No | — | ImageKit public key |
@@ -131,14 +132,16 @@ make all             # full cycle: lint → test → migrate → build → docke
 | `GOOGLE_CLIENT_SECRET` | OAuth | — | Google OAuth client secret |
 | `GOOGLE_REDIRECT_URL` | OAuth | — | OAuth callback URL |
 
-### Local email (Mailpit)
+### Email
 
-`docker compose` starts **Mailpit** alongside Postgres:
+Mailer selection: `RESEND_API_KEY` → Resend HTTP API; else `SMTP_HOST` → SMTP; else no-op (logs only).
+
+**Local:** `docker compose` starts **Mailpit** alongside Postgres:
 
 - SMTP: `localhost:1025` (matches `.env.example`)
 - UI: [http://localhost:8025](http://localhost:8025) — inspect lifecycle emails
 
-Leave `SMTP_HOST` empty to use a no-op mailer (CI / tests). Staff invites and talent lifecycle emails are sent when SMTP is configured.
+**Production:** set `RESEND_API_KEY`, a verified `SMTP_FROM` domain in Resend, and `APP_URL` to the real frontend origin (invite/login links). Do not point production at Mailpit. Leave `SMTP_HOST` empty in production so a missing API key fails closed to the no-op mailer instead of a local SMTP host.
 
 ### Image uploads (ImageKit)
 
@@ -178,7 +181,7 @@ scaloo/
 │   │   ├── nightly_learning.go ← 01:00 UTC cron
 │   │   ├── fallback_check.go   ← hourly
 │   │   └── cycle_reminders.go  ← hourly mid/3d/24h + brand digest
-│   ├── mail/                   ← SMTP mailer + HTML templates
+│   ├── mail/                   ← Resend HTTP / SMTP mailer + HTML templates
 │   ├── middleware/
 │   │   ├── auth.go       ← session + role enforcement
 │   │   ├── cors.go
@@ -203,7 +206,7 @@ scaloo/
 
 ### Admin
 ```
-POST /auth/invite/*            → create invite + email sent (when SMTP configured)
+POST /auth/invite/*            → create invite + email sent (when mail is configured)
 POST /auth/invite/verify       → set password
 POST /auth/totp/enroll         → get QR URI
 POST /auth/totp/verify         → activate 2FA

@@ -7,34 +7,35 @@ import (
 )
 
 type Config struct {
-	Database_url         string
-	App_key              string
-	Port                 string
-	App_env              string
-	App_version          string
-	Allowed_origins      []string
-	Rate_limit_rps       int
-	Delta_lt             float64
-	Google_client_id     string
-	Google_client_secret string
-	Google_redirect_url  string
-	App_url              string
-	SMTP_host            string
-	SMTP_port            int
-	SMTP_user            string
-	SMTP_password        string
-	SMTP_from            string
-	SMTP_tls             bool
-	Imagekit_private_key string
-	Imagekit_public_key  string
+	Database_url          string
+	App_key               string
+	Port                  string
+	App_env               string
+	App_version           string
+	Allowed_origins       []string
+	Rate_limit_rps        int
+	Delta_lt              float64
+	Google_client_id      string
+	Google_client_secret  string
+	Google_redirect_url   string
+	App_url               string
+	SMTP_host             string
+	SMTP_port             int
+	SMTP_user             string
+	SMTP_password         string
+	SMTP_from             string
+	SMTP_tls              bool
+	Resend_api_key        string
+	Imagekit_private_key  string
+	Imagekit_public_key   string
 	Imagekit_url_endpoint string
-	Audit_hmac_secret    string
-	Audit_s3_endpoint    string
-	Audit_s3_bucket      string
-	Audit_s3_region      string
-	Audit_s3_access_key  string
-	Audit_s3_secret_key  string
-	Audit_archive_dir    string
+	Audit_hmac_secret     string
+	Audit_s3_endpoint     string
+	Audit_s3_bucket       string
+	Audit_s3_region       string
+	Audit_s3_access_key   string
+	Audit_s3_secret_key   string
+	Audit_archive_dir     string
 }
 
 func Load() Config {
@@ -57,6 +58,7 @@ func Load() Config {
 		SMTP_password:         envOr("SMTP_PASSWORD", ""),
 		SMTP_from:             envOr("SMTP_FROM", "Scaloo <noreply@scaloo.local>"),
 		SMTP_tls:              envBool("SMTP_TLS", false),
+		Resend_api_key:        envOr("RESEND_API_KEY", ""),
 		Imagekit_private_key:  envOr("IMAGEKIT_PRIVATE_KEY", ""),
 		Imagekit_public_key:   envOr("IMAGEKIT_PUBLIC_KEY", ""),
 		Imagekit_url_endpoint: envOr("IMAGEKIT_URL_ENDPOINT", ""),
